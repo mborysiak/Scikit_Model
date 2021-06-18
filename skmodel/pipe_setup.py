@@ -1,5 +1,7 @@
-from ff.modeling.data_setup import DataSetup
-from sklearn.pipeline import Pipeline, FeatureUnion
+from skmodel.data_setup import DataSetup
+from sklearn.pipeline import FeatureUnion#,Pipeline
+from imblearn.pipeline import Pipeline
+from imblearn.over_sampling import SMOTE
 
 # feature selection
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
@@ -124,6 +126,7 @@ class PipeSetup(DataSetup):
                                   'impute' = SimpleImputer()
                                   'std_scale' = OneHotEncoder() 
                                   'min_max_scale' = MinMaxScaler()
+                                  'smote' = SMOTE()
 
                                   Preprocessing
                                   ----
@@ -174,6 +177,7 @@ class PipeSetup(DataSetup):
                 'impute': SimpleImputer(),
                 'std_scale': StandardScaler(),
                 'min_max_scale': MinMaxScaler(),
+                'smote': SMOTE(),
 
                 #feature selection
                 'feature_select': FeatureSelect(['avg_pick']),

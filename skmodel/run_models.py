@@ -1,5 +1,5 @@
-from ff.modeling.data_setup import DataSetup
-from ff.modeling.pipe_setup import PipeSetup
+from skmodel.data_setup import DataSetup
+from skmodel.pipe_setup import PipeSetup
 import pandas as pd
 import numpy as np
 
@@ -29,6 +29,7 @@ class SciKitModel(PipeSetup):
         self.data = data
         self.model_obj = model_obj
         np.random.seed(set_seed)
+
 
     def param_range(self, var_type, low, high, spacing, bayes_rand):
 
@@ -77,6 +78,8 @@ class SciKitModel(PipeSetup):
             'pca': {'n_components': self.param_range('int', 2, 40, 4, br)},
             'k_best': {'k': self.param_range('int', 2, 40, 4, br)},
             'select_perc': {'percentile': self.param_range('int', 20, 80, 4, br)},
+            'k_best_c': {'k': self.param_range('int', 2, 40, 4, br)},
+            'select_perc_c': {'percentile': self.param_range('int', 20, 80, 4, br)},
             'select_from_model': {'estimator': [Ridge(alpha=0.1), Ridge(alpha=1), Ridge(alpha=10),
                                                 Lasso(alpha=0.1), Lasso(alpha=1), Lasso(alpha=10),
                                                 RandomForestRegressor(max_depth=5), 
@@ -113,8 +116,21 @@ class SciKitModel(PipeSetup):
             'knn': {'n_neighbors':  self.param_range('int',1, 30, 1, br),
                     'weights': self.param_range('cat',['distance', 'uniform'], None, None, br),
                     'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br)},
-            'svr': {'C': self.param_range('int', 1, 100, 1, br)}
+            'svr': {'C': self.param_range('int', 1, 100, 1, br)},
+
+            # classification params
+            'lr_c': {'C': self.param_range('real', 0.01, 25, 0.1, br),
+                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.1)]}
         }
+
+        # set the classification params equal to the regression params
+        for m in ['rf', 'xgb', 'lgbm', 'gbm', 'knn']:
+            param_options[f'{m}_c'] = param_options[m]
+            
+        for m in ['rf', 'lgbm']:
+            param_options[f'{m}_c']['class_weight'] = [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.1)]
+
+        param_options['xgb_c']['scale_pos_weight'] = self.param_range('real', 1, 10, 0.5, br)
 
         # initialize the parameter dictionary
         params = {}
@@ -282,8 +298,8 @@ class SciKitModel(PipeSetup):
         #--------------
         
         # list to store accuracy metrics
-        mean_val_r2 = []
-        mean_hold_r2 = []
+        mean_val_sc = []
+        mean_hold_sc = []
         
         # arrays to hold all predictions and actuals
         hold_predictions = np.array([])
@@ -296,7 +312,7 @@ class SciKitModel(PipeSetup):
         #----------------
         # Run the KFold train-prediction loop
         #----------------
-        kf = KFold(n_splits=n_splits, random_state=4567)
+        kf = KFold(n_splits=n_splits)
         for val_idx, hold_idx in kf.split(X_val_hold):
             
             print('-------')
@@ -311,12 +327,17 @@ class SciKitModel(PipeSetup):
             
             # get the CV time splits and find the best model
             cv_time = self.cv_time_splits(col_split, X_train, time_split)
-            best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, n_iter=n_iter)
+
+            if self.model_obj=='class':
+                best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
+                                                n_iter=n_iter, scoring=self.scorer('matt_coef'))
+            else:
+                best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, n_iter=n_iter)
 
             # score the best model on validation and holdout sets
-            _, val_r2 = self.val_scores(best_model, X_train, y_train, cv=cv_time)
-            _, hold_r2 = self.test_scores(best_model, X_hold, y_hold)
-            mean_val_r2.append(val_r2); mean_hold_r2.append(hold_r2)
+            _, val_sc = self.val_scores(best_model, X_train, y_train, cv=cv_time)
+            _, hold_sc = self.test_scores(best_model, X_hold, y_hold)
+            mean_val_sc.append(val_sc); mean_hold_sc.append(hold_sc)
             best_models.append(best_model)
 
             # get the holdout and validation predictions and store
@@ -328,7 +349,7 @@ class SciKitModel(PipeSetup):
             val_predictions = np.append(val_predictions, np.array(val_pred_cur))
 
         # calculate the mean scores
-        mean_scores = [round(np.mean(mean_val_r2), 3), round(np.mean(mean_hold_r2), 3)]
+        mean_scores = [round(np.mean(mean_val_sc), 3), round(np.mean(mean_hold_sc), 3)]
         print('Mean Scores:', mean_scores)
 
         # aggregate all the prediction for val, holds, and combined val/hold
@@ -346,14 +367,23 @@ class SciKitModel(PipeSetup):
     def val_scores(self, model, X, y, cv):
 
         if self.model_obj == 'reg':
-            mse = self.cv_score(model, X, y, cv=5, scoring=self.scorer('mse'))
-            r2 = self.cv_score(model, X, y, cv=5, scoring=self.scorer('r2'))
+            mse = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('mse'))
+            r2 = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('r2'))
             r2_fit = model.fit(X, y).score(X, y)
 
             for v, m in zip(['Val MSE:', 'Val R2:', 'Fit R2:'], [mse, r2, r2_fit]):
                 print(v, round(m, 3))
 
             return mse, r2
+
+        if self.model_obj == 'class':
+            matt_coef = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('matt_coef'))
+            f1_score = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('f1'))
+
+            for v, m in zip(['Val MC:', 'Val F1:'], [matt_coef, f1_score]):
+                print(v, round(m, 3))
+
+            return f1_score, matt_coef 
 
     def test_scores(self, model, X, y):
 
@@ -365,6 +395,15 @@ class SciKitModel(PipeSetup):
                 print(v, round(m, 3))
 
             return mse, r2
+
+        if self.model_obj == 'class':
+            matt_coef = self.cv_score(model, X, y, cv=5, scoring=self.scorer('matt_coef'))
+            f1_score = self.cv_score(model, X, y, cv=5, scoring=self.scorer('f1'))
+
+            for v, m in zip(['Test MC:', 'Test F1:'], [matt_coef, f1_score]):
+                print(v, round(m, 3))
+
+            return f1_score, matt_coef
 
     def return_labels(self, cols, time_or_all='time'):
         
