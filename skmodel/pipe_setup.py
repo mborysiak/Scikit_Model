@@ -312,5 +312,5 @@ class PipeSetup(DataSetup):
 
         if self.model_obj == 'reg':
             return StackingRegressor(pipes, final_estimator=final_estimator)
-        if self.model_obj == 'reg':
-            return StackingRegressor(pipes, final_estimator=final_estimator)
+        if self.model_obj == 'class':
+            return StackingClassifier(pipes, final_estimator=final_estimator)

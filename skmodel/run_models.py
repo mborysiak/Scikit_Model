@@ -97,11 +97,11 @@ class SciKitModel(PipeSetup):
                     'min_samples_leaf': self.param_range('int', 1, 10, 1, br),
                     'max_features': self.param_range('real', 0.1, 1, 0.1, br)},
             'lgbm': {'n_estimators': self.param_range('int', 50, 250, 25, br),
-                     'max_depth': self.param_range('int', 2, 30, 2, br),
+                     'max_depth': self.param_range('int', 2, 30, 3, br),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br),
                      'subsample':  self.param_range('real', 0.2, 1, 0.2, br),
                     # 'min_child_weight':  self.param_range('int', 1, 100, 20, br),
-                     'reg_lambda': self.param_range('int', 0, 1000, 50, br)},
+                     'reg_lambda': self.param_range('int', 0, 1000, 100, br)},
             'xgb': {'n_estimators': self.param_range('int', 50, 250, 25, br),
                      'max_depth': self.param_range('int', 2, 30, 2, br),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br),
@@ -120,17 +120,33 @@ class SciKitModel(PipeSetup):
 
             # classification params
             'lr_c': {'C': self.param_range('real', 0.01, 25, 0.1, br),
-                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.1)]}
+                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.1)]},
+            'rf_c': {'n_estimators': self.param_range('int', 50, 250, 10, br),
+                    'max_depth': self.param_range('int', 2, 30, 2, br),
+                    'min_samples_leaf': self.param_range('int', 1, 10, 1, br),
+                    'max_features': self.param_range('real', 0.1, 1, 0.1, br),
+                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.1)]},
+            'lgbm_c': {'n_estimators': self.param_range('int', 50, 250, 25, br),
+                     'max_depth': self.param_range('int', 2, 30, 3, br),
+                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.2, br),
+                     'reg_lambda': self.param_range('int', 0, 1000, 100, br),
+                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.1)]},
+            'xgb_c': {'n_estimators': self.param_range('int', 50, 250, 25, br),
+                     'max_depth': self.param_range('int', 2, 30, 2, br),
+                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.2, br),
+                     'reg_lambda': self.param_range('int', 0, 1000, 50, br),
+                     'scale_pos_weight': self.param_range('real', 1, 10, 0.5, br)},
+            'gbm_c': {'n_estimators': self.param_range('int', 50, 250, 20, br),
+                    'max_depth': self.param_range('int', 2, 30, 3, br),
+                    'min_samples_leaf': self.param_range('int', 1, 10, 2, br),
+                    'max_features': self.param_range('real', 0.1, 1, 0.2, br),
+                    'subsample': self.param_range('real', 0.1, 1, 0.2, br)},
+            'knn_c': {'n_neighbors':  self.param_range('int',1, 30, 1, br),
+                    'weights': self.param_range('cat',['distance', 'uniform'], None, None, br),
+                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br)},
         }
-
-        # set the classification params equal to the regression params
-        for m in ['rf', 'xgb', 'lgbm', 'gbm', 'knn']:
-            param_options[f'{m}_c'] = param_options[m]
-            
-        for m in ['rf', 'lgbm']:
-            param_options[f'{m}_c']['class_weight'] = [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.1)]
-
-        param_options['xgb_c']['scale_pos_weight'] = self.param_range('real', 1, 10, 0.5, br)
 
         # initialize the parameter dictionary
         params = {}
@@ -331,7 +347,7 @@ class SciKitModel(PipeSetup):
             if self.model_obj=='class':
                 best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
                                                 n_iter=n_iter, scoring=self.scorer('matt_coef'))
-            else:
+            elif self.model_obj=='reg':
                 best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, n_iter=n_iter)
 
             # score the best model on validation and holdout sets
@@ -376,14 +392,14 @@ class SciKitModel(PipeSetup):
 
             return mse, r2
 
-        if self.model_obj == 'class':
+        elif self.model_obj == 'class':
             matt_coef = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('matt_coef'))
-            f1_score = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('f1'))
+            f1 = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('f1'))
 
-            for v, m in zip(['Val MC:', 'Val F1:'], [matt_coef, f1_score]):
+            for v, m in zip(['Val MC:', 'Val F1:'], [matt_coef, f1]):
                 print(v, round(m, 3))
 
-            return f1_score, matt_coef 
+            return f1, matt_coef 
 
     def test_scores(self, model, X, y):
 
@@ -396,14 +412,14 @@ class SciKitModel(PipeSetup):
 
             return mse, r2
 
-        if self.model_obj == 'class':
-            matt_coef = self.cv_score(model, X, y, cv=5, scoring=self.scorer('matt_coef'))
-            f1_score = self.cv_score(model, X, y, cv=5, scoring=self.scorer('f1'))
+        elif self.model_obj == 'class':
+            matt_coef = matthews_corrcoef(y, model.predict(X))
+            f1 = f1_score(y, model.predict(X))
 
-            for v, m in zip(['Test MC:', 'Test F1:'], [matt_coef, f1_score]):
+            for v, m in zip(['Test MC:', 'Test F1:'], [matt_coef, f1]):
                 print(v, round(m, 3))
 
-            return f1_score, matt_coef
+            return f1, matt_coef
 
     def return_labels(self, cols, time_or_all='time'):
         
@@ -418,24 +434,28 @@ class SciKitModel(PipeSetup):
 
         # get out the coefficients or feature importances from the model
         try: feat_imp = pd.Series(model[-1].coef_, index=cols)
-        except: feat_imp = pd.Series(model[-1].feature_importances_, index=cols)
+        except: pass
+
+        try: feat_imp = pd.Series(model[-1].coef_[0], index=cols)
+        except: pass
+
+        try: feat_imp = pd.Series(model[-1].feature_importances_, index=cols)
+        except: pass
         
         # print out the oefficents of stacked model
         print('\nFeature Importances\n--------\n', feat_imp)
-
-
     
 
     def X_y_stack(self, met, pred, actual):
 
-        X = pd.DataFrame([v['combined'] for k,v in pred.items() if met in k]).T
+        X = pd.DataFrame([v for k,v in pred.items() if met in k]).T
         X.columns = [k for k,_ in pred.items() if met in k]
         y = pd.Series(actual[X.columns[0]], name='y_act')
 
         return X, y
 
         
-    def best_stack(self, est, X_stack, y_stack):
+    def best_stack(self, est, X_stack, y_stack, n_iter=500, print_coef=True, run_adp=False):
 
         X_stack_shuf = X_stack.sample(frac=1, random_state=1234).reset_index(drop=True)
         y_stack_shuf = y_stack.sample(frac=1, random_state=1234).reset_index(drop=True)
@@ -443,19 +463,24 @@ class SciKitModel(PipeSetup):
         stack_params = self.default_params(est)
         stack_params['k_best__k'] = range(1, X_stack_shuf.shape[1])
 
-        best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, 
-                                    stack_params, cv=5, n_iter=500)
+        if self.model_obj=='class':
+            best_model = self.random_search(est, X_stack, y_stack, stack_params, cv=5, 
+                                                n_iter=n_iter, scoring=self.scorer('matt_coef'))
+        elif self.model_obj=='reg':
+            best_model = self.random_search(est, X_stack, y_stack, stack_params, cv=5, n_iter=n_iter)
 
-        # print the OOS scores for ADP and model stack
-        print('ADP Score\n--------')
-        adp_col = [c for c in X_stack.columns if 'adp' in c]
-        _, _ = self.val_scores(self.piece('lr')[1], X_stack_shuf[adp_col], y_stack_shuf, cv=5)
+        if run_adp:
+            # print the OOS scores for ADP and model stack
+            print('ADP Score\n--------')
+            adp_col = [c for c in X_stack.columns if 'adp' in c]
+            _, _ = self.val_scores(self.piece('lr')[1], X_stack_shuf[adp_col], y_stack_shuf, cv=5)
 
         print('\nStack Score\n--------')
-        _, _ = self.val_scores(best_model, X_stack_shuf, y_stack_shuf, cv=3)
+        _, _ = self.val_scores(best_model, X_stack_shuf, y_stack_shuf, cv=5)
 
-        imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
-        self.print_coef(best_model, imp_cols)
+        if print_coef:
+            imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
+            self.print_coef(best_model, imp_cols)
 
         return best_model
 
