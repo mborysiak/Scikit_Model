@@ -464,27 +464,28 @@ class SciKitModel(PipeSetup):
         stack_params['k_best__k'] = range(1, X_stack_shuf.shape[1])
 
         if self.model_obj=='class':
-            best_model = self.random_search(est, X_stack, y_stack, stack_params, cv=5, 
-                                                n_iter=n_iter, scoring=self.scorer('matt_coef'))
+            best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
+                                            n_iter=n_iter, scoring=self.scorer('matt_coef'))
         elif self.model_obj=='reg':
-            best_model = self.random_search(est, X_stack, y_stack, stack_params, cv=5, n_iter=n_iter)
+            best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
+                                            n_iter=n_iter)
 
         if run_adp:
             # print the OOS scores for ADP and model stack
             print('ADP Score\n--------')
             adp_col = [c for c in X_stack.columns if 'adp' in c]
-            adp_score, _ = self.val_scores(self.piece('lr')[1], X_stack_shuf[adp_col], y_stack_shuf, cv=5)
+            _, adp_score = self.val_scores(self.piece('lr')[1], X_stack_shuf[adp_col], y_stack_shuf, cv=5)
         else:
-            adp_score = None
+            adp_score = 0
 
         print('\nStack Score\n--------')
-        stack_score, _ = self.val_scores(best_model, X_stack_shuf, y_stack_shuf, cv=5)
+        _, stack_score = self.val_scores(best_model, X_stack_shuf, y_stack_shuf, cv=5)
 
         if print_coef:
             imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
             self.print_coef(best_model, imp_cols)
 
-        return best_model, stack_score, adp_score
+        return best_model, round(stack_score,3), round(adp_score,3)
 
 
     
