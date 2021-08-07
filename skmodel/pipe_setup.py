@@ -13,12 +13,13 @@ from sklearn.feature_selection import SelectFromModel, SelectKBest,SelectPercent
 from sklearn.cluster import FeatureAgglomeration
 
 # import all various models
-from sklearn.linear_model import Ridge, Lasso, LinearRegression, LogisticRegression, ElasticNet
+from sklearn.linear_model import Ridge, Lasso, LinearRegression, LogisticRegression, BayesianRidge, ElasticNet
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 from sklearn.ensemble import VotingRegressor, VotingClassifier, StackingRegressor, StackingClassifier
 from xgboost import XGBRegressor, XGBClassifier
 from lightgbm import LGBMRegressor, LGBMClassifier
+from ngboost import NGBRegressor
 from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
 from sklearn.svm import LinearSVR, LinearSVC
 
@@ -156,6 +157,8 @@ class PipeSetup(DataSetup):
                                   'knn' = KNeighborsRegressor()
                                   'gbm' = GradientBoostingRegressor()
                                   'svr' = LinearSVR()
+                                  'ngb' = NGBRegressor()
+                                  'bridge' = BayesianRidge()
 
                                   Classification Models
                                   ----
@@ -173,7 +176,7 @@ class PipeSetup(DataSetup):
         piece_options = {
 
                 # data transformation
-                'one_hot': OneHotEncoder(),
+                'one_hot': OneHotEncoder(handle_unknown='ignore'),
                 'impute': SimpleImputer(),
                 'std_scale': StandardScaler(),
                 'min_max_scale': MinMaxScaler(),
@@ -204,6 +207,8 @@ class PipeSetup(DataSetup):
                 'knn': KNeighborsRegressor(n_jobs=1),
                 'gbm': GradientBoostingRegressor(),
                 'svr': LinearSVR(),
+                'ngb': NGBRegressor(),
+                'bridge': BayesianRidge(),
 
                 # classification algorithms
                 'lr_c': LogisticRegression(),
@@ -238,22 +243,23 @@ class PipeSetup(DataSetup):
         return tuple(piece)
 
     
-    # def _column_transform(self, num_pipe, cat_pipe):
-    #     """Function that combines numeric and categorical pipeline transformers
+    def column_transform(self, num_pipe, cat_pipe):
+        """Function that combines numeric and categorical pipeline transformers
 
-    #     Args:
-    #         num_pipe (sklearn.Pipeline): Numeric transformation pipeline
-    #         cat_pipe (sklearn.Pipeline): Categorical transformation pipeline
+        Args:
+            num_pipe (sklearn.Pipeline): Numeric transformation pipeline
+            cat_pipe (sklearn.Pipeline): Categorical transformation pipeline
 
-    #     Returns:
-    #         sklear.ColumnTransformer: ColumnTransformer object with both numeric 
-    #                                   and categorical trasnformation steps
-    #     """        
-    #     return ColumnTransformer(
-    #                 transformers=[
-    #                     ('numeric', num_pipe, self.num_features),
-    #                     ('cat', cat_pipe, self.cat_features)
-    #                 ])
+        Returns:
+            sklear.ColumnTransformer: ColumnTransformer object with both numeric 
+                                      and categorical trasnformation steps
+        """        
+        return ('column_transform', ColumnTransformer(
+                    transformers=[
+                        ('numeric', Pipeline(num_pipe), self.num_features),
+                        ('cat', Pipeline(cat_pipe), self.cat_features)
+                    ])
+               )
     
 
     def ensemble_pipe(self, pipes):
@@ -273,7 +279,7 @@ class PipeSetup(DataSetup):
         if self.model_obj == 'reg':
             ensemble = VotingRegressor(estimators=ests)
         elif self.model_obj == 'class':
-            ensemble = VotingClassifier(estimators=ests)
+            ensemble = VotingClassifier(estimators=ests, voting='soft')
         
         return Pipeline([('ensemble', ensemble)])
 

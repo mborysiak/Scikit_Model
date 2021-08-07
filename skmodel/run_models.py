@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 # model and search setup
-from sklearn.model_selection import cross_val_score, cross_val_predict, GridSearchCV, RandomizedSearchCV, KFold
+from sklearn.model_selection import cross_val_score, cross_val_predict, GridSearchCV, RandomizedSearchCV, StratifiedKFold
 
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
@@ -174,6 +174,18 @@ class SciKitModel(PipeSetup):
                 for inner_step in outer_transform:
                     for hyper_param, value in param_options[inner_step[0]].items():
                         params[f'{step}__{inner_step[0]}__{hyper_param}'] = value
+
+            # if the step is feature union go inside and find steps within 
+            if step == 'column_transform':
+                num_outer_transform = steps[step].get_params()['transformers'][0][1:-1][0].named_steps
+                cat_outer_transform = steps[step].get_params()['transformers'][1][1:-1][0].named_steps
+
+                for num_cat, outer_transform in zip(['numeric', 'cat'], [num_outer_transform, cat_outer_transform]):
+
+                  for inner_step, _ in outer_transform.items():
+                    if inner_step in param_options.keys():
+                      for hyper_param, value in param_options[inner_step].items():
+                          params[f'{step}__{num_cat}__{inner_step}__{hyper_param}'] = value
                 
         return params
 
@@ -205,9 +217,10 @@ class SciKitModel(PipeSetup):
         return best_model.best_estimator_
 
 
-    def random_search(self, pipe_to_fit, X, y, params, cv=5, n_iter=50, scoring='neg_mean_squared_error'):
+    def random_search(self, pipe_to_fit, X, y, params, cv=5, n_iter=50, n_jobs=-1, scoring='neg_mean_squared_error'):
 
-        search = RandomizedSearchCV(pipe_to_fit, params, n_iter=n_iter, cv=cv, scoring=scoring, refit=True)
+        search = RandomizedSearchCV(pipe_to_fit, params, n_iter=n_iter, cv=cv, 
+                                    scoring=scoring, n_jobs=n_jobs, refit=True)
         best_model = search.fit(X, y)
 
         return best_model.best_estimator_
@@ -232,8 +245,8 @@ class SciKitModel(PipeSetup):
         return score
 
 
-    def cv_predict(self, model, X, y, cv=5, n_jobs=-1):
-        pred = cross_val_predict(model, X, y, cv=cv, n_jobs=n_jobs)
+    def cv_predict(self, model, X, y, cv=5, n_jobs=-1, method='predict'):
+        pred = cross_val_predict(model, X, y, cv=cv, n_jobs=n_jobs, method=method)
         return pred
 
 
@@ -284,6 +297,52 @@ class SciKitModel(PipeSetup):
         return X_train_only, X_val, y_train_only, y_val
 
 
+    def cv_predict_time_holdout(self, model, X_train, y_train, X_hold, cv_time_train, cv_time_hold):
+  
+      """Perform a rolling time-series prediction for both validation data in a training set
+         plus predictions on a holdout test set
+
+         For example, train on slices 1-5 and predict slice 6a for the validation data that will
+         be added to training and also predict 6b for holdout test data. Next train on slices
+         1-6a and predict 7a + 7b, while storing 6b, 7b, etc. separately.
+
+          Args:
+              model (sklearn.Model or Pipe): Model or pipeline to be trained
+              X_train (pandas.DataFrame or numpy.array): Set of samples and features for training data with time component
+              y_train (pandas.Series or numpy.array): Target to be predicted
+              X_hold (pandas.Series or numpy.array): Subset of X data held-out to only be predicted
+              cv_time_train (tuple): Indices of data to be trained / validated on the X_train/y_trian datasets for rolling time
+              cv_time_hold (tuple): Indices of data to be predicted on holdout dataset for rolling time
+
+          Returns:
+              list: In fold predictions for validation data
+              list: Out of fold predictions for holdout data
+          """ 
+
+      # set up list to store validation and holdout predictions + dataframe indices
+      val_predictions = []
+      hold_predictions = []
+
+      # iterate through both the training and holdout time series indices
+      for (tr_train, te_train), (_, te_hold) in zip(cv_time_train, cv_time_hold):
+
+          # extract out the training and validation datasets from the training folds
+          X_train_cur, y_train_cur = X_train.iloc[tr_train, :], y_train[tr_train]
+          X_val = X_train.iloc[te_train, :]
+
+          # fit and predict the validation dataset
+          model.fit(X_train_cur, y_train_cur)
+          pred_val = model.predict(X_val)
+          val_predictions.extend(pred_val)
+
+          # predict the holdout dataset for the current time period
+          X_hold_test = X_hold.iloc[te_hold, :]
+          pred_hold = model.predict(X_hold_test)
+          hold_predictions.extend(pred_hold)
+
+      return val_predictions, hold_predictions
+
+
     def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50):
         """Train a time series model using rolling cross-validation combined
            with K-Fold holdouts for a complete holdout prediction set.
@@ -328,8 +387,10 @@ class SciKitModel(PipeSetup):
         #----------------
         # Run the KFold train-prediction loop
         #----------------
-        kf = KFold(n_splits=n_splits)
-        for val_idx, hold_idx in kf.split(X_val_hold):
+        X_val_hold = X_val_hold.sample(frac=1, random_state=1234)
+        y_val_hold = y_val_hold.sample(frac=1, random_state=1234)
+        skf = StratifiedKFold(n_splits=n_splits)
+        for val_idx, hold_idx in skf.split(X_val_hold, X_val_hold.year):
             
             print('-------')
 
@@ -351,25 +412,29 @@ class SciKitModel(PipeSetup):
                 best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, n_iter=n_iter)
 
             # score the best model on validation and holdout sets
-            _, val_sc = self.val_scores(best_model, X_train, y_train, cv=cv_time)
-            _, hold_sc = self.test_scores(best_model, X_hold, y_hold)
+            cv_time_hold = self.cv_time_splits(col_split, X_hold, time_split)
+            val_pred_cur, hold_pred = self.cv_predict_time_holdout(best_model, X_train, y_train, X_hold, cv_time, cv_time_hold)
+            _, val_sc = self.test_scores(y_train[cv_time[0][1][0]:], val_pred_cur)
+            _, hold_sc = self.test_scores(y_hold, hold_pred)
+            
+            # append the scores and best model
             mean_val_sc.append(val_sc); mean_hold_sc.append(hold_sc)
             best_models.append(best_model)
 
             # get the holdout and validation predictions and store
-            hold_predictions = np.concatenate([hold_predictions, best_model.predict(X_hold)])
+            hold_predictions = np.concatenate([hold_predictions, np.array(hold_pred)])
             hold_actuals = np.concatenate([hold_actuals, y_hold])
-
+            
             cv_time = self.cv_time_splits(col_split, X, time_split)
-            val_pred_cur = self.cv_predict_time(best_model, X, y, cv_time)
-            val_predictions = np.append(val_predictions, np.array(val_pred_cur))
+            val_pred = self.cv_predict_time(best_model, X, y, cv_time)
+            val_predictions = np.append(val_predictions, np.array(val_pred))
 
         # calculate the mean scores
-        mean_scores = [round(np.mean(mean_val_sc), 3), round(np.mean(mean_hold_sc), 3)]
+        mean_scores = [np.round(np.mean(mean_val_sc), 3), np.round(np.mean(mean_hold_sc), 3)]
         print('Mean Scores:', mean_scores)
-
+        
         # aggregate all the prediction for val, holds, and combined val/hold
-        val_predictions = np.mean(val_predictions.reshape(n_splits, len(val_pred_cur)), axis=0)
+        val_predictions = np.mean(val_predictions.reshape(n_splits, len(val_pred)), axis=0)
         oof_data = {
             'val': val_predictions, 
             'hold': hold_predictions,
@@ -388,7 +453,7 @@ class SciKitModel(PipeSetup):
             r2_fit = model.fit(X, y).score(X, y)
 
             for v, m in zip(['Val MSE:', 'Val R2:', 'Fit R2:'], [mse, r2, r2_fit]):
-                print(v, round(m, 3))
+                print(v, np.round(m, 3))
 
             return mse, r2
 
@@ -397,27 +462,28 @@ class SciKitModel(PipeSetup):
             f1 = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('f1'))
 
             for v, m in zip(['Val MC:', 'Val F1:'], [matt_coef, f1]):
-                print(v, round(m, 3))
+                print(v, np.round(m, 3))
 
             return f1, matt_coef 
 
-    def test_scores(self, model, X, y):
+          
+    def test_scores(self, y, pred):
 
         if self.model_obj == 'reg':
-            mse = mean_squared_error(y, model.predict(X))
-            r2 = r2_score(y, model.predict(X))
+            mse = mean_squared_error(y, pred)
+            r2 = r2_score(y, pred)
             
             for v, m in zip(['Test MSE:', 'Test R2:'], [mse, r2]):
-                print(v, round(m, 3))
+                print(v, np.round(m, 3))
 
             return mse, r2
 
         elif self.model_obj == 'class':
-            matt_coef = matthews_corrcoef(y, model.predict(X))
-            f1 = f1_score(y, model.predict(X))
+            matt_coef = matthews_corrcoef(y, pred)
+            f1 = f1_score(y, pred)
 
             for v, m in zip(['Test MC:', 'Test F1:'], [matt_coef, f1]):
-                print(v, round(m, 3))
+                print(v, np.round(m, 3))
 
             return f1, matt_coef
 

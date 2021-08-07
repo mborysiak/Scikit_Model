@@ -26,6 +26,9 @@ class DataSetup:
             self.y = None
             print(f'{y_metric} not in dataframe to create y')
 
+        self.num_features = list(self.X.dtypes[self.X.dtypes != 'object'].index)
+        self.cat_features = list(self.X.dtypes[self.X.dtypes == 'object'].index)
+
         return self.X, self.y
 
 
@@ -50,6 +53,9 @@ class DataSetup:
         else: 
             self.y = None
             print(f'{y_metric} not in dataframe to create y')
+
+        self.num_features = list(self.X.dtypes[self.X.dtypes != 'object'].index)
+        self.cat_features = list(self.X.dtypes[self.X.dtypes == 'object'].index)
 
         return self.X, self.y
 
