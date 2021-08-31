@@ -390,7 +390,7 @@ class SciKitModel(PipeSetup):
         X_val_hold = X_val_hold.sample(frac=1, random_state=1234)
         y_val_hold = y_val_hold.sample(frac=1, random_state=1234)
         skf = StratifiedKFold(n_splits=n_splits)
-        for val_idx, hold_idx in skf.split(X_val_hold, X_val_hold.year):
+        for val_idx, hold_idx in skf.split(X_val_hold, X_val_hold[col_split]):
             
             print('-------')
 
