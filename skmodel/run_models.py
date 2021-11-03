@@ -1,5 +1,8 @@
 from skmodel.data_setup import DataSetup
 from skmodel.pipe_setup import PipeSetup
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.pipeline import Pipeline
+
 import pandas as pd
 import numpy as np
 
@@ -76,9 +79,9 @@ class SciKitModel(PipeSetup):
             # feature params
             'agglomeration': {'n_clusters': self.param_range('int', 2, 30, 4, br)},
             'pca': {'n_components': self.param_range('int', 2, 30, 4, br)},
-            'k_best': {'k': self.param_range('int', 2, 40, 5, br)},
+            'k_best': {'k': self.param_range('int', 5, 40, 5, br)},
             'select_perc': {'percentile': self.param_range('int', 20, 80, 4, br)},
-            'k_best_c': {'k': self.param_range('int', 2, 40, 4, br)},
+            'k_best_c': {'k': self.param_range('int', 5, 40, 4, br)},
             'select_perc_c': {'percentile': self.param_range('int', 20, 80, 4, br)},
             'select_from_model': {'estimator': [Ridge(alpha=0.1), Ridge(alpha=1), Ridge(alpha=10),
                                                 Lasso(alpha=0.1), Lasso(alpha=1), Lasso(alpha=10),
@@ -106,11 +109,11 @@ class SciKitModel(PipeSetup):
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br),
                      'subsample':  self.param_range('real', 0.2, 1, 0.2, br),
                      'reg_lambda': self.param_range('int', 0, 1000, 100, br)},
-            'gbm': {'n_estimators': self.param_range('int', 50, 250, 20, br),
+            'gbm': {'n_estimators': self.param_range('int', 10, 100, 10, br),
                     'max_depth': self.param_range('int', 2, 30, 3, br),
-                    'min_samples_leaf': self.param_range('int', 1, 10, 2, br),
-                    'max_features': self.param_range('real', 0.1, 1, 0.2, br),
-                    'subsample': self.param_range('real', 0.1, 1, 0.2, br)},
+                    'min_samples_leaf': self.param_range('int', 4, 15, 2, br),
+                    'max_features': self.param_range('real', 0.7, 1, 0.1, br),
+                    'subsample': self.param_range('real', 0.5, 1, 0.1, br)},
             'knn': {'n_neighbors':  self.param_range('int',1, 30, 1, br),
                     'weights': self.param_range('cat',['distance', 'uniform'], None, None, br),
                     'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br)},
@@ -118,41 +121,47 @@ class SciKitModel(PipeSetup):
 
             # classification params
             'lr_c': {'C': self.param_range('real', 0.01, 25, 0.1, br),
-                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.1)]},
+                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.1)]},
             'rf_c': {'n_estimators': self.param_range('int', 50, 250, 25, br),
                     'max_depth': self.param_range('int', 2, 20, 3, br),
                     'min_samples_leaf': self.param_range('int', 1, 10, 1, br),
                     'max_features': self.param_range('real', 0.1, 1, 0.2, br),
-                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.2)]},
+                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
             'lgbm_c': {'n_estimators': self.param_range('int', 50, 250, 30, br),
                      'max_depth': self.param_range('int', 2, 20, 3, br),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br),
                      'subsample':  self.param_range('real', 0.2, 1, 0.25, br),
                      'reg_lambda': self.param_range('int', 0, 1000, 100, br),
-                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.2)]},
+                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
             'xgb_c': {'n_estimators': self.param_range('int', 50, 250, 30, br),
                      'max_depth': self.param_range('int', 2, 20, 3, br),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br),
                      'subsample':  self.param_range('real', 0.2, 1, 0.25, br),
                      'reg_lambda': self.param_range('int', 0, 1000, 100, br),
                      'scale_pos_weight': self.param_range('real', 1, 10, 1, br)},
-            'gbm_c': {'n_estimators': self.param_range('int', 50, 250, 20, br),
+            'gbm_c': {'n_estimators': self.param_range('int', 10, 100, 10, br),
                     'max_depth': self.param_range('int', 2, 30, 3, br),
-                    'min_samples_leaf': self.param_range('int', 1, 10, 2, br),
-                    'max_features': self.param_range('real', 0.1, 1, 0.2, br),
-                    'subsample': self.param_range('real', 0.1, 1, 0.2, br)},
+                    'min_samples_leaf': self.param_range('int', 3, 10, 1, br),
+                    'max_features': self.param_range('real', 0.7, 1, 0.1, br),
+                    'subsample': self.param_range('real', 0.5, 1, 0.1, br)},
             'knn_c': {'n_neighbors':  self.param_range('int',1, 30, 1, br),
                     'weights': self.param_range('cat',['distance', 'uniform'], None, None, br),
                     'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br)},
             'svc': {'C': self.param_range('int', 1, 100, 1, br),
-                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.1, 1, 0.2)]},
+                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
         }
 
         # initialize the parameter dictionary
         params = {}
 
         # get all the named steps in the pipe
+        # if type(pipe)==Pipeline: 
         steps = pipe.named_steps
+        pipe_type = 'normal'
+        # elif type(pipe)==TransformedTargetRegressor: 
+        #     pipe = pipe.regressor
+        #     steps = pipe.named_steps
+        #     pipe_type = 'y_transform'
 
         #-----------------
         # Create a dict using named pipe step prefixes + hyperparameters
@@ -164,7 +173,10 @@ class SciKitModel(PipeSetup):
             # if the step has default params, then loop through hyperparams and add to dict
             if step in param_options.keys():
                 for hyper_param, value in param_options[step].items():
-                    params[f'{step}__{hyper_param}'] = value
+                    if pipe_type=='normal':
+                        params[f'{step}__{hyper_param}'] = value
+                    elif pipe_type=='y_transform':
+                         params[f'regressor__{step}__{hyper_param}'] = value
 
             # if the step is feature union go inside and find steps within 
             if step == 'feature_union':
@@ -173,7 +185,10 @@ class SciKitModel(PipeSetup):
                 # add each feature union step prefixed by feature_union
                 for inner_step in outer_transform:
                     for hyper_param, value in param_options[inner_step[0]].items():
-                        params[f'{step}__{inner_step[0]}__{hyper_param}'] = value
+                        if pipe_type=='normal':
+                            params[f'{step}__{inner_step[0]}__{hyper_param}'] = value
+                        elif pipe_type=='y_transform':
+                            params[f'regressor__{step}__{inner_step[0]}__{hyper_param}'] = value
 
             # if the step is feature union go inside and find steps within 
             if step == 'column_transform':
@@ -376,11 +391,12 @@ class SciKitModel(PipeSetup):
         mean_val_sc = []
         mean_hold_sc = []
         
-        # arrays to hold all predictions and actuals
-        hold_predictions = np.array([])
-        hold_actuals = np.array([])
+        # # arrays to hold all predictions and actuals
+        # hold_predictions = np.array([])
+        # hold_actuals = np.array([])
         val_predictions = np.array([])
-        
+        hold_results = pd.DataFrame()
+
         # list to hold the best models
         best_models = []
 
@@ -421,25 +437,29 @@ class SciKitModel(PipeSetup):
             mean_val_sc.append(val_sc); mean_hold_sc.append(hold_sc)
             best_models.append(best_model)
 
-            # get the holdout and validation predictions and store
-            hold_predictions = np.concatenate([hold_predictions, np.array(hold_pred)])
-            hold_actuals = np.concatenate([hold_actuals, y_hold])
+            # # get the holdout and validation predictions and store
+            # hold_predictions = np.concatenate([hold_predictions, np.array(hold_pred)])
+            # hold_actuals = np.concatenate([hold_actuals, y_hold])
+
+            hold_results_cur = pd.DataFrame([hold_idx, y_hold, hold_pred]).T
+            hold_results = pd.concat([hold_results, hold_results_cur], axis=0)
             
-            cv_time = self.cv_time_splits(col_split, X, time_split)
-            val_pred = self.cv_predict_time(best_model, X, y, cv_time)
-            val_predictions = np.append(val_predictions, np.array(val_pred))
+            # cv_time = self.cv_time_splits(col_split, X, time_split)
+            # val_pred = self.cv_predict_time(best_model, X, y, cv_time)
+            # val_predictions = np.append(val_predictions, np.array(val_pred))
 
         # calculate the mean scores
         mean_scores = [np.round(np.mean(mean_val_sc), 3), np.round(np.mean(mean_hold_sc), 3)]
         print('Mean Scores:', mean_scores)
         
-        # aggregate all the prediction for val, holds, and combined val/hold
-        val_predictions = np.mean(val_predictions.reshape(n_splits, len(val_pred)), axis=0)
+        # # aggregate all the prediction for val, holds, and combined val/hold
+        # val_predictions = np.mean(val_predictions.reshape(n_splits, len(val_pred)), axis=0)
+
         oof_data = {
             'val': val_predictions, 
-            'hold': hold_predictions,
-            'combined': np.mean([val_predictions, hold_predictions], axis=0),
-            'actual': hold_actuals
+            'hold': hold_results.iloc[:, 2].values,
+            # 'combined': np.mean([val_predictions, hold_predictions], axis=0),
+            'actual': hold_results.iloc[:, 1].values
             }
 
         return best_models, mean_scores, oof_data
@@ -521,13 +541,10 @@ class SciKitModel(PipeSetup):
         return X, y
 
         
-    def best_stack(self, est, X_stack, y_stack, n_iter=500, print_coef=True, run_adp=False):
+    def best_stack(self, est, stack_params, X_stack, y_stack, n_iter=500, print_coef=True, run_adp=False):
 
         X_stack_shuf = X_stack.sample(frac=1, random_state=1234).reset_index(drop=True)
         y_stack_shuf = y_stack.sample(frac=1, random_state=1234).reset_index(drop=True)
-
-        stack_params = self.default_params(est)
-        stack_params['k_best__k'] = range(1, X_stack_shuf.shape[1])
 
         if self.model_obj=='class':
             best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
@@ -540,21 +557,26 @@ class SciKitModel(PipeSetup):
             # print the OOS scores for ADP and model stack
             print('ADP Score\n--------')
             adp_col = [c for c in X_stack.columns if 'adp' in c]
-            _, adp_score = self.val_scores(self.piece('lr')[1], X_stack_shuf[adp_col], y_stack_shuf, cv=5)
+            adp_preds = self.cv_predict(self.piece('lr')[1], X_stack_shuf[adp_col], y_stack_shuf, cv=5)
+            adp_score = r2_score(y_stack_shuf, adp_preds)
+            print(f'ADP R2: {round(adp_score,3)}')
+        
         else:
             adp_score = 0
 
         print('\nStack Score\n--------')
-        _, stack_score = self.val_scores(best_model, X_stack_shuf, y_stack_shuf, cv=5)
+        full_preds = self.cv_predict(best_model, X_stack_shuf, y_stack_shuf, cv=5)
+        stack_score = r2_score(y_stack_shuf, full_preds)
+        print(f'Val R2: {round(stack_score,3)}')
 
         if print_coef:
-            imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
+            try:
+                imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
+            except:
+                imp_cols = X_stack_shuf.columns
             self.print_coef(best_model, imp_cols)
 
         return best_model, round(stack_score,3), round(adp_score,3)
-
-
-    
 
 
 

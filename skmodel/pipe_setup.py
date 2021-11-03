@@ -2,12 +2,13 @@ from skmodel.data_setup import DataSetup
 from sklearn.pipeline import FeatureUnion#,Pipeline
 from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import SMOTE
+import numpy as np
 
 # feature selection
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
 from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_selection import SelectFromModel, SelectKBest,SelectPercentile, mutual_info_regression, f_regression, f_classif
 from sklearn.cluster import FeatureAgglomeration
@@ -40,6 +41,34 @@ class FeatureExtractionSwitcher(BaseEstimator):
 
     def transform(self, X, y=None):
         return self.estimator.transform(X)
+
+
+class PercentileCut(BaseEstimator, TransformerMixin):
+
+    def __init__(self, cutoff=50, greater_or_less='greater_equal', verbose=False):
+        self.cutoff = cutoff
+        self.greater_or_less = greater_or_less
+        self.verbose = verbose
+
+    def calc_perc(self, X):
+        if self.greater_or_less == 'greater_equal':
+            return  np.where(X >= np.percentile(X, self.cutoff), 1, 0)
+       
+        elif self.greater_or_less == 'less_equal':
+            return  np.where(X <= np.percentile(X, self.cutoff), 1, 0)
+        
+        else:
+            print("Must specify greater_or_less = ('greater_equal', 'less_equal'). X not transformed.")
+            return X
+
+    def fit(self, X):
+        return self
+
+    def transform(self, X):
+        return self.calc_perc(X)
+
+    def inverse_transform(self, X):
+        return X
 
 
 class FeatureDrop(BaseEstimator,TransformerMixin):
@@ -128,8 +157,9 @@ class PipeSetup(DataSetup):
                                   'std_scale' = OneHotEncoder() 
                                   'min_max_scale' = MinMaxScaler()
                                   'smote' = SMOTE()
+                                  'y_perc' = PercentileCut()
 
-                                  Preprocessing
+                                  Feature Selection
                                   ----
                                   'feature_select' = FeatureSelect()
                                   'feature_drop' = FeatureDrop()
@@ -181,6 +211,7 @@ class PipeSetup(DataSetup):
                 'std_scale': StandardScaler(),
                 'min_max_scale': MinMaxScaler(),
                 'smote': SMOTE(),
+                'y_perc': PercentileCut(),
 
                 #feature selection
                 'feature_select': FeatureSelect(['avg_pick']),
@@ -260,6 +291,20 @@ class PipeSetup(DataSetup):
                         ('cat', Pipeline(cat_pipe), self.cat_features)
                     ])
                )
+
+
+    def target_transform(self, pipe, y_transform):
+        """Function that combines numeric and categorical pipeline transformers
+
+        Args:
+            pipe (sklearn.Pipeline): Full model pipe to train
+            y_transform (sklearn.Transform): Transformer object to modify y-variable
+
+        Returns:
+            sklearn.TransformedTargetRegressor: Regressor object that can be trained
+            with a modified target variable
+        """        
+        return TransformedTargetRegressor(regressor=pipe, transformer=y_transform)
     
 
     def ensemble_pipe(self, pipes):
