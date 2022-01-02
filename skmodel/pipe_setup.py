@@ -111,6 +111,23 @@ class FeatureSelect(BaseEstimator, TransformerMixin):
         return X.loc[:, self.cols]
 
 
+class RandomSample(BaseEstimator, TransformerMixin):
+
+    def __init__(self, frac, seed=1234):
+        """
+        A Custom BaseEstimator that can switch between classifiers.
+        :param estimator: sklearn object - The classifier
+        """ 
+        self.frac = frac
+        self.seed = seed
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        return X.sample(frac=self.frac, axis=1, random_state=self.seed)
+
+
 
 class PipeSetup(DataSetup):
 
@@ -214,6 +231,7 @@ class PipeSetup(DataSetup):
                 'y_perc': PercentileCut(),
 
                 #feature selection
+                'random_sample': RandomSample(frac=1),
                 'feature_select': FeatureSelect(['avg_pick']),
                 'feature_drop': FeatureDrop(),
                 'select_perc': SelectPercentile(score_func=f_regression, percentile=10),

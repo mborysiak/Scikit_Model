@@ -9,8 +9,10 @@ import numpy as np
 # model and search setup
 from sklearn.model_selection import cross_val_score, cross_val_predict, GridSearchCV, RandomizedSearchCV, StratifiedKFold
 
-from skopt import BayesSearchCV
-from skopt.space import Real, Integer, Categorical
+from hyperopt import fmin, hp, tpe
+from hyperopt import SparkTrials, STATUS_OK
+from hyperopt.pyll import scope
+
 from sklearn.linear_model import Ridge, Lasso
 from sklearn.ensemble import RandomForestRegressor
 
@@ -34,12 +36,12 @@ class SciKitModel(PipeSetup):
         np.random.seed(set_seed)
 
 
-    def param_range(self, var_type, low, high, spacing, bayes_rand):
+    def param_range(self, var_type, low, high, spacing, bayes_rand, label):
 
         if bayes_rand=='bayes':
-            if var_type=='int': return Integer(low, high)
-            if var_type=='real': return Real(low, high)
-            if var_type=='cat': return Categorical(low)
+            if var_type=='int': return scope.int(hp.quniform(label, low, high, 1))
+            if var_type=='real': return hp.uniform(label, low, high)
+            if var_type=='cat': return hp.choice(label, low)
         elif bayes_rand=='rand':
             if var_type=='int': return range(low, high, spacing)
             if var_type=='real': return np.arange(low, high, spacing)
@@ -77,77 +79,80 @@ class SciKitModel(PipeSetup):
         param_options = {
 
             # feature params
-            'agglomeration': {'n_clusters': self.param_range('int', 2, 30, 4, br)},
-            'pca': {'n_components': self.param_range('int', 2, 30, 4, br)},
-            'k_best': {'k': self.param_range('int', 5, 40, 5, br)},
-            'select_perc': {'percentile': self.param_range('int', 20, 80, 4, br)},
-            'k_best_c': {'k': self.param_range('int', 5, 40, 4, br)},
-            'select_perc_c': {'percentile': self.param_range('int', 20, 80, 4, br)},
+            'agglomeration': {'n_clusters': self.param_range('int', 2, 30, 4, br, 'n_clusters')},
+            'pca': {'n_components': self.param_range('int', 2, 30, 4, br, 'n_components')},
+            'k_best': {'k': self.param_range('int', 5, 40, 5, br, 'k')},
+            'select_perc': {'percentile': self.param_range('int', 20, 80, 4, br, 'select_perc')},
+            'k_best_c': {'k': self.param_range('int', 5, 40, 4, br, 'k_best_c')},
+            'select_perc_c': {'percentile': self.param_range('int', 20, 80, 4, br, 'select_perc_c')},
             'select_from_model': {'estimator': [Ridge(alpha=0.1), Ridge(alpha=1), Ridge(alpha=10),
                                                 Lasso(alpha=0.1), Lasso(alpha=1), Lasso(alpha=10),
                                                 RandomForestRegressor(max_depth=5), 
                                                 RandomForestRegressor(max_depth=10)]},
-            'feature_drop': {'col': self.param_range('cat', ['avg_pick', None], None, None, br)},
-            'feature_select': {'cols': self.param_range('cat', [['avg_pick'], ['avg_pick', 'year']], None, None, br)},
+            'feature_drop': {'col': self.param_range('cat', ['avg_pick', None], None, None, br, 'feature_drop')},
+            'feature_select': {'cols': self.param_range('cat', [['avg_pick'], ['avg_pick', 'year']], None, None, br, 'feature_select')},
 
             # model params
-            'ridge': {'alpha': self.param_range('int', 1, 1000, 1, br)},
-            'lasso': {'alpha': self.param_range('real', 0.01, 25, 0.1, br)},
-            'enet': {'alpha': self.param_range('real', 0.01, 50, 0.1, br),
-                    'l1_ratio': self.param_range('real', 0.05, 0.95, 0.05, br)},
-            'rf': {'n_estimators': self.param_range('int', 50, 250, 10, br),
-                    'max_depth': self.param_range('int', 2, 30, 2, br),
-                    'min_samples_leaf': self.param_range('int', 1, 10, 1, br),
-                    'max_features': self.param_range('real', 0.1, 1, 0.2, br)},
-            'lgbm': {'n_estimators': self.param_range('int', 50, 250, 25, br),
-                     'max_depth': self.param_range('int', 2, 30, 3, br),
-                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br),
-                     'subsample':  self.param_range('real', 0.2, 1, 0.2, br),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br)},
-            'xgb': {'n_estimators': self.param_range('int', 50, 250, 25, br),
-                     'max_depth': self.param_range('int', 2, 20, 2, br),
-                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br),
-                     'subsample':  self.param_range('real', 0.2, 1, 0.2, br),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br)},
-            'gbm': {'n_estimators': self.param_range('int', 10, 100, 10, br),
-                    'max_depth': self.param_range('int', 2, 30, 3, br),
-                    'min_samples_leaf': self.param_range('int', 4, 15, 2, br),
-                    'max_features': self.param_range('real', 0.7, 1, 0.1, br),
-                    'subsample': self.param_range('real', 0.5, 1, 0.1, br)},
-            'knn': {'n_neighbors':  self.param_range('int',1, 30, 1, br),
-                    'weights': self.param_range('cat',['distance', 'uniform'], None, None, br),
-                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br)},
-            'svr': {'C': self.param_range('int', 1, 100, 1, br)},
+            'ridge': {'alpha': self.param_range('int', 1, 1000, 1, br, 'alpha')},
+            'lasso': {'alpha': self.param_range('real', 0.01, 25, 0.1, br, 'alpha')},
+            'enet': {'alpha': self.param_range('real', 0.01, 50, 0.1, br, 'alpha'),
+                    'l1_ratio': self.param_range('real', 0.05, 0.95, 0.05, br, 'l1_ratio')},
+            'rf': {'n_estimators': self.param_range('int', 50, 250, 10, br, 'n_estimators'),
+                    'max_depth': self.param_range('int', 2, 30, 2, br, 'max_depth'),
+                    'min_samples_leaf': self.param_range('int', 1, 10, 1, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features')},
+            'lgbm': {'n_estimators': self.param_range('int', 25, 300, 25, br, 'n_estimators'),
+                     'max_depth': self.param_range('int', 2, 50, 5, br, 'max_depth'),
+                     'colsample_bytree': self.param_range('real', 0.1, 1, 0.2, br, 'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.1, 1, 0.2, br, 'subsample'),
+                     'reg_lambda': self.param_range('int', 0, 1000, 100, br, 'reg_lambda'),
+                     'reg_alpha': self.param_range('int', 0, 1000, 100, br, 'reg_alpha'),
+                    #  'learning_rate': self.param_range('real', 0.0001, 0.1, 0.001, br, 'learning_rate'),
+                     'min_data_in_leaf': self.param_range('int', 1, 25, 5, br, 'min_data_in_leaf')},
+            'xgb': {'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
+                     'max_depth': self.param_range('int', 2, 20, 2, br, 'max_depth'),
+                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br,  'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.2, br, 'subsample'),
+                     'reg_lambda': self.param_range('int', 0, 1000, 100, br,  'reg_lambda')},
+            'gbm': {'n_estimators': self.param_range('int', 10, 100, 10, br, 'n_estimators'),
+                    'max_depth': self.param_range('int', 2, 30, 3, br,'max_depth'),
+                    'min_samples_leaf': self.param_range('int', 4, 15, 2, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
+                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')},
+            'knn': {'n_neighbors':  self.param_range('int',1, 30, 1, br, 'n_neighbors'),
+                    'weights': self.param_range('cat',['distance', 'uniform'], None, None, br, 'weights'),
+                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')},
+            'svr': {'C': self.param_range('int', 1, 100, 1, br, 'C')},
 
             # classification params
-            'lr_c': {'C': self.param_range('real', 0.01, 25, 0.1, br),
+            'lr_c': {'C': self.param_range('real', 0.01, 25, 0.1, br, 'C'),
                      'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.1)]},
-            'rf_c': {'n_estimators': self.param_range('int', 50, 250, 25, br),
-                    'max_depth': self.param_range('int', 2, 20, 3, br),
-                    'min_samples_leaf': self.param_range('int', 1, 10, 1, br),
-                    'max_features': self.param_range('real', 0.1, 1, 0.2, br),
+            'rf_c': {'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
+                    'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
+                    'min_samples_leaf': self.param_range('int', 1, 10, 1, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features'),
                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
-            'lgbm_c': {'n_estimators': self.param_range('int', 50, 250, 30, br),
-                     'max_depth': self.param_range('int', 2, 20, 3, br),
-                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br),
-                     'subsample':  self.param_range('real', 0.2, 1, 0.25, br),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br),
+            'lgbm_c': {'n_estimators': self.param_range('int', 50, 250, 30, br, 'n_estimators'),
+                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
+                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
+                     'reg_lambda': self.param_range('int', 0, 1000, 100, br, 'reg_lambda'),
                      'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
-            'xgb_c': {'n_estimators': self.param_range('int', 50, 250, 30, br),
-                     'max_depth': self.param_range('int', 2, 20, 3, br),
-                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br),
-                     'subsample':  self.param_range('real', 0.2, 1, 0.25, br),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br),
-                     'scale_pos_weight': self.param_range('real', 1, 10, 1, br)},
-            'gbm_c': {'n_estimators': self.param_range('int', 10, 100, 10, br),
-                    'max_depth': self.param_range('int', 2, 30, 3, br),
-                    'min_samples_leaf': self.param_range('int', 3, 10, 1, br),
-                    'max_features': self.param_range('real', 0.7, 1, 0.1, br),
-                    'subsample': self.param_range('real', 0.5, 1, 0.1, br)},
-            'knn_c': {'n_neighbors':  self.param_range('int',1, 30, 1, br),
-                    'weights': self.param_range('cat',['distance', 'uniform'], None, None, br),
-                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br)},
-            'svc': {'C': self.param_range('int', 1, 100, 1, br),
+            'xgb_c': {'n_estimators': self.param_range('int', 50, 250, 30, br, 'n_estimators'),
+                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
+                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
+                     'reg_lambda': self.param_range('int', 0, 1000, 100, br, 'reg_lambda'),
+                     'scale_pos_weight': self.param_range('real', 1, 10, 1, br, 'scale_pos_weight')},
+            'gbm_c': {'n_estimators': self.param_range('int', 10, 100, 10, br, 'n_estimators'),
+                    'max_depth': self.param_range('int', 2, 30, 3, br, 'max_depth'),
+                    'min_samples_leaf': self.param_range('int', 3, 10, 1, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
+                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')},
+            'knn_c': {'n_neighbors':  self.param_range('int',1, 30, 1, br, 'n_neighbors'),
+                    'weights': self.param_range('cat',['distance', 'uniform'], None, None, br, 'weights'),
+                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')},
+            'svc': {'C': self.param_range('int', 1, 100, 1, br, 'C'),
                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
         }
 
@@ -241,16 +246,6 @@ class SciKitModel(PipeSetup):
         return best_model.best_estimator_
 
 
-    def bayes_search(self, pipe_to_fit, X, y, params, cv=5, n_iter=50, random_starts=25, 
-                     scoring='neg_mean_squared_error', verbose=0):
-
-        search = BayesSearchCV(pipe_to_fit, params, n_iter=n_iter, scoring=scoring, refit=True,
-                                cv=cv, optimizer_kwargs={'n_initial_points': random_starts}, verbose=verbose)
-        best_model = search.fit(X, y)
-
-        return best_model.best_estimator_
-
-
     def cv_score(self, model, X, y, cv=5, scoring='neg_mean_squared_error', 
                  n_jobs=1, return_mean=True):
 
@@ -312,7 +307,55 @@ class SciKitModel(PipeSetup):
         return X_train_only, X_val, y_train_only, y_val
 
 
-    def cv_predict_time_holdout(self, model, X_train, y_train, X_hold, cv_time_train, cv_time_hold):
+    def get_y_val(self):
+        return self.y_train.loc[self.cv_time_train[0][1][0]:]
+
+
+    def bayes_search(self, model, params, n_iters=64):
+        
+        self.cur_model = model
+        try: 
+            self.cur_model.steps[-1][1].n_jobs=2
+            parallelism=8
+        except: 
+            parallelism=16
+
+        spark_trials = SparkTrials(parallelism=parallelism)
+        best_hyperparameters = fmin(
+                                    fn=self.bayes_objective,
+                                    space=params,
+                                    algo=tpe.suggest,
+                                    trials=spark_trials,
+                                    max_evals=n_iters
+                                    )
+        best_params = {}
+        for k, v in best_hyperparameters.items():
+            if (v).is_integer():
+                v = int(v)
+            for k_full, _ in params.items():
+                if k in k_full:
+                    best_params[k_full] = v
+        
+        model.set_params(**best_params)
+        try: model.steps[-1][1].n_jobs=-1
+        except: pass
+
+        return model
+
+    def bayes_objective(self, params):
+
+        self.cur_model.set_params(**params) 
+
+        val_predictions, _ = self.cv_predict_time_holdout(self.cur_model)
+        y_val = self.get_y_val()
+        rmse = np.sqrt(mean_squared_error(y_val, val_predictions))
+        r2 = r2_score(y_val, val_predictions)
+        mae = mean_absolute_error(y_val, val_predictions)
+        score = mae + rmse - 100*r2
+
+        return {'loss': score, 'status': STATUS_OK}
+
+    def cv_predict_time_holdout(self, model):
   
       """Perform a rolling time-series prediction for both validation data in a training set
          plus predictions on a holdout test set
@@ -339,11 +382,11 @@ class SciKitModel(PipeSetup):
       hold_predictions = []
 
       # iterate through both the training and holdout time series indices
-      for (tr_train, te_train), (_, te_hold) in zip(cv_time_train, cv_time_hold):
+      for (tr_train, te_train), (_, te_hold) in zip(self.cv_time_train, self.cv_time_hold):
 
           # extract out the training and validation datasets from the training folds
-          X_train_cur, y_train_cur = X_train.iloc[tr_train, :], y_train[tr_train]
-          X_val = X_train.iloc[te_train, :]
+          X_train_cur, y_train_cur = self.X_train.iloc[tr_train, :], self.y_train[tr_train]
+          X_val = self.X_train.iloc[te_train, :]
 
           # fit and predict the validation dataset
           model.fit(X_train_cur, y_train_cur)
@@ -351,14 +394,14 @@ class SciKitModel(PipeSetup):
           val_predictions.extend(pred_val)
 
           # predict the holdout dataset for the current time period
-          X_hold_test = X_hold.iloc[te_hold, :]
+          X_hold_test = self.X_hold.iloc[te_hold, :]
           pred_hold = model.predict(X_hold_test)
           hold_predictions.extend(pred_hold)
 
       return val_predictions, hold_predictions
 
 
-    def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50):
+    def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50, bayes_rand='rand'):
         """Train a time series model using rolling cross-validation combined
            with K-Fold holdouts for a complete holdout prediction set.
 
@@ -417,19 +460,32 @@ class SciKitModel(PipeSetup):
             # concat the current training set using train and validation folds
             X_train = pd.concat([X_train_only, X_val], axis=0).reset_index(drop=True)
             y_train = pd.concat([y_train_only, y_val], axis=0).reset_index(drop=True)
+
             
             # get the CV time splits and find the best model
             cv_time = self.cv_time_splits(col_split, X_train, time_split)
+            
+            # score the best model on validation and holdout sets
+            cv_time_hold = self.cv_time_splits(col_split, X_hold, time_split)
+
+            self.X_train = X_train
+            self.y_train=y_train
+            self.X_hold=X_hold
+            self.y_hold=y_hold
+            self.cv_time_train = cv_time
+            self.cv_time_hold = cv_time_hold
 
             if self.model_obj=='class':
                 best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
                                                 n_iter=n_iter, scoring=self.scorer('matt_coef'))
             elif self.model_obj=='reg':
-                best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, n_iter=n_iter)
+                if bayes_rand=='rand':
+                    best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, n_iter=n_iter)
+                elif bayes_rand=='bayes':
+                    best_model = self.bayes_search(model, params, n_iters=n_iter)
 
-            # score the best model on validation and holdout sets
-            cv_time_hold = self.cv_time_splits(col_split, X_hold, time_split)
-            val_pred_cur, hold_pred = self.cv_predict_time_holdout(best_model, X_train, y_train, X_hold, cv_time, cv_time_hold)
+            print(best_model)
+            val_pred_cur, hold_pred = self.cv_predict_time_holdout(best_model)
             _, val_sc = self.test_scores(y_train[cv_time[0][1][0]:], val_pred_cur)
             _, hold_sc = self.test_scores(y_hold, hold_pred)
             
