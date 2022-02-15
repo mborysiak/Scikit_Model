@@ -252,18 +252,22 @@ class PipeSetup(DataSetup):
                 'enet': ElasticNet(),
                 'rf': RandomForestRegressor(n_jobs=1),
                 'xgb': XGBRegressor(n_jobs=1),
-                'lgbm': LGBMRegressor(n_jobs=1),
+                'lgbm': LGBMRegressor(n_jobs=1, verbose=-1),
                 'knn': KNeighborsRegressor(n_jobs=1),
                 'gbm': GradientBoostingRegressor(),
                 'svr': LinearSVR(),
                 'ngb': NGBRegressor(),
                 'bridge': BayesianRidge(),
 
+                # quantile regression
+                'gbm_q': GradientBoostingRegressor(loss='quantile'),
+                'lgbm_q': LGBMRegressor(objective='quantile', verbose=0, n_jobs=1),
+
                 # classification algorithms
                 'lr_c': LogisticRegression(),
                 'rf_c': RandomForestClassifier(n_jobs=1),
                 'xgb_c': XGBClassifier(n_jobs=1),
-                'lgbm_c': LGBMClassifier(n_jobs=1),
+                'lgbm_c': LGBMClassifier(n_jobs=1, verbose=0),
                 'knn_c': KNeighborsClassifier(n_jobs=1),
                 'gbm_c': GradientBoostingClassifier(),
                 'svc': LinearSVC()
@@ -339,10 +343,10 @@ class PipeSetup(DataSetup):
         for i, p in enumerate(pipes):
             ests.append((f'p{i}', p))
 
-        if self.model_obj == 'reg':
-            ensemble = VotingRegressor(estimators=ests)
+        if self.model_obj in ('reg', 'quantile'):
+            ensemble = VotingRegressor(estimators=ests, n_jobs=-1)
         elif self.model_obj == 'class':
-            ensemble = VotingClassifier(estimators=ests, voting='soft')
+            ensemble = VotingClassifier(estimators=ests, voting='soft', n_jobs=-1)
         
         return Pipeline([('ensemble', ensemble)])
 
@@ -380,6 +384,6 @@ class PipeSetup(DataSetup):
             ests.append((f'stack_p{i}', p))
 
         if self.model_obj == 'reg':
-            return StackingRegressor(pipes, final_estimator=final_estimator)
+            return StackingRegressor(pipes, final_estimator=final_estimator, n_jobs=-1)
         if self.model_obj == 'class':
-            return StackingClassifier(pipes, final_estimator=final_estimator)
+            return StackingClassifier(pipes, final_estimator=final_estimator, n_jobs=-1)

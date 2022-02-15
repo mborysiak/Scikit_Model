@@ -19,6 +19,12 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import make_scorer
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from sklearn.metrics import matthews_corrcoef, f1_score
+from sklearn.metrics import mean_pinball_loss
+import gc
+
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning) 
+warnings.filterwarnings("ignore", category=UserWarning) 
 
 class SciKitModel(PipeSetup):
     
@@ -79,6 +85,8 @@ class SciKitModel(PipeSetup):
         param_options = {
 
             # feature params
+            'random_sample': {'frac': self.param_range('real', 0.05, 0.3, 0.05, br, 'frac'),
+                              'seed': self.param_range('cat', [12, 123, 1234, 12345, 123456], None, None, br, 'seed')},
             'agglomeration': {'n_clusters': self.param_range('int', 2, 30, 4, br, 'n_clusters')},
             'pca': {'n_components': self.param_range('int', 2, 30, 4, br, 'n_components')},
             'k_best': {'k': self.param_range('int', 5, 40, 5, br, 'k')},
@@ -93,67 +101,129 @@ class SciKitModel(PipeSetup):
             'feature_select': {'cols': self.param_range('cat', [['avg_pick'], ['avg_pick', 'year']], None, None, br, 'feature_select')},
 
             # model params
-            'ridge': {'alpha': self.param_range('int', 1, 1000, 1, br, 'alpha')},
-            'lasso': {'alpha': self.param_range('real', 0.01, 25, 0.1, br, 'alpha')},
-            'enet': {'alpha': self.param_range('real', 0.01, 50, 0.1, br, 'alpha'),
-                    'l1_ratio': self.param_range('real', 0.05, 0.95, 0.05, br, 'l1_ratio')},
-            'rf': {'n_estimators': self.param_range('int', 50, 250, 10, br, 'n_estimators'),
+            'ridge': {
+                        'alpha': self.param_range('int', 1, 1000, 1, br, 'alpha')
+                     },
+
+            'lasso': {
+                        'alpha': self.param_range('real', 0.01, 25, 0.1, br, 'alpha')
+                    },
+
+            'enet': {
+                    'alpha': self.param_range('real', 0.01, 50, 0.1, br, 'alpha'),
+                    'l1_ratio': self.param_range('real', 0.05, 0.95, 0.05, br, 'l1_ratio')
+                    },
+
+            'rf': {
+                    'n_estimators': self.param_range('int', 50, 250, 10, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 30, 2, br, 'max_depth'),
                     'min_samples_leaf': self.param_range('int', 1, 10, 1, br, 'min_samples_leaf'),
-                    'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features')},
-            'lgbm': {'n_estimators': self.param_range('int', 25, 300, 25, br, 'n_estimators'),
-                     'max_depth': self.param_range('int', 2, 50, 5, br, 'max_depth'),
-                     'colsample_bytree': self.param_range('real', 0.1, 1, 0.2, br, 'colsample_bytree'),
-                     'subsample':  self.param_range('real', 0.1, 1, 0.2, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br, 'reg_lambda'),
-                     'reg_alpha': self.param_range('int', 0, 1000, 100, br, 'reg_alpha'),
-                    #  'learning_rate': self.param_range('real', 0.0001, 0.1, 0.001, br, 'learning_rate'),
-                     'min_data_in_leaf': self.param_range('int', 1, 25, 5, br, 'min_data_in_leaf')},
-            'xgb': {'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
+                    'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features')
+                    },
+
+            'lgbm': {
+                     'n_estimators': self.param_range('int', 25, 200, 25, br, 'n_estimators'),
+                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
+                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br, 'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.2, br, 'subsample'),
+                     'reg_lambda': self.param_range('int', 0, 500, 100, br, 'reg_lambda'),
+                     'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
+                     },
+
+             'lgbm_q': {
+                        'n_estimators': self.param_range('int', 25, 200, 25, br, 'n_estimators'),
+                        'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
+                        'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br, 'colsample_bytree'),
+                        'subsample':  self.param_range('real', 0.2, 1, 0.2, br, 'subsample'),
+                        'reg_lambda': self.param_range('int', 0, 500, 100, br, 'reg_lambda'),
+                        'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
+                        },
+
+            'xgb': {
+                    'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
                      'max_depth': self.param_range('int', 2, 20, 2, br, 'max_depth'),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br,  'colsample_bytree'),
                      'subsample':  self.param_range('real', 0.2, 1, 0.2, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br,  'reg_lambda')},
-            'gbm': {'n_estimators': self.param_range('int', 10, 100, 10, br, 'n_estimators'),
+                     'reg_lambda': self.param_range('int', 0, 1000, 100, br,  'reg_lambda')
+                     },
+
+            'gbm': {
+                    'n_estimators': self.param_range('int', 10, 100, 10, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 30, 3, br,'max_depth'),
                     'min_samples_leaf': self.param_range('int', 4, 15, 2, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
-                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')},
-            'knn': {'n_neighbors':  self.param_range('int',1, 30, 1, br, 'n_neighbors'),
+                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')
+                    },
+
+            'gbm_q': {
+                    'n_estimators': self.param_range('int', 10, 100, 10, br, 'n_estimators'),
+                    'max_depth': self.param_range('int', 2, 30, 3, br,'max_depth'),
+                    'min_samples_leaf': self.param_range('int', 4, 15, 2, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
+                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')
+                    },
+
+            'knn': {
+                    'n_neighbors':  self.param_range('int',1, 30, 1, br, 'n_neighbors'),
                     'weights': self.param_range('cat',['distance', 'uniform'], None, None, br, 'weights'),
-                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')},
-            'svr': {'C': self.param_range('int', 1, 100, 1, br, 'C')},
+                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')
+                    },
+
+            'svr': {
+                    'C': self.param_range('int', 1, 100, 1, br, 'C')
+                    },
 
             # classification params
-            'lr_c': {'C': self.param_range('real', 0.01, 25, 0.1, br, 'C'),
-                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.1)]},
-            'rf_c': {'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
+            'lr_c': {
+                    'C': self.param_range('real', 0.01, 25, 0.1, br, 'C'),
+                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.1)]
+                    },
+
+            'rf_c': {
+                    'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
                     'min_samples_leaf': self.param_range('int', 1, 10, 1, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features'),
-                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
-            'lgbm_c': {'n_estimators': self.param_range('int', 50, 250, 30, br, 'n_estimators'),
+                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]
+                    },
+                    
+            'lgbm_c': {
+                    'n_estimators': self.param_range('int', 25, 200, 25, br, 'n_estimators'),
+                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
+                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
+                     'reg_lambda': self.param_range('int', 0, 300, 100, br, 'reg_lambda'),
+                     'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
+                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)],
+                     },
+
+            'xgb_c': {
+                     'n_estimators': self.param_range('int', 50, 250, 30, br, 'n_estimators'),
                      'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
                      'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
                      'reg_lambda': self.param_range('int', 0, 1000, 100, br, 'reg_lambda'),
-                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
-            'xgb_c': {'n_estimators': self.param_range('int', 50, 250, 30, br, 'n_estimators'),
-                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
-                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
-                     'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br, 'reg_lambda'),
-                     'scale_pos_weight': self.param_range('real', 1, 10, 1, br, 'scale_pos_weight')},
-            'gbm_c': {'n_estimators': self.param_range('int', 10, 100, 10, br, 'n_estimators'),
+                     'scale_pos_weight': self.param_range('real', 1, 10, 1, br, 'scale_pos_weight')
+                     },
+
+            'gbm_c': {
+                    'n_estimators': self.param_range('int', 10, 100, 10, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 30, 3, br, 'max_depth'),
                     'min_samples_leaf': self.param_range('int', 3, 10, 1, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
-                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')},
-            'knn_c': {'n_neighbors':  self.param_range('int',1, 30, 1, br, 'n_neighbors'),
+                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')
+                    },
+
+            'knn_c': {
+                    'n_neighbors':  self.param_range('int',1, 30, 1, br, 'n_neighbors'),
                     'weights': self.param_range('cat',['distance', 'uniform'], None, None, br, 'weights'),
-                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')},
-            'svc': {'C': self.param_range('int', 1, 100, 1, br, 'C'),
-                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]},
+                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')
+                    },
+
+            'svc': {
+                    'C': self.param_range('int', 1, 100, 1, br, 'C'),
+                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]
+                    },
         }
 
         # initialize the parameter dictionary
@@ -217,7 +287,8 @@ class SciKitModel(PipeSetup):
             'mse': make_scorer(mean_squared_error, greater_is_better=False),
             'mae': make_scorer(mean_absolute_error, greater_is_better=False),
             'matt_coef': make_scorer(matthews_corrcoef, greater_is_better=True),
-            'f1': make_scorer(f1_score, greater_is_better=True)
+            'f1': make_scorer(f1_score, greater_is_better=True),
+            'pinball': make_scorer(mean_pinball_loss, greater_is_better=False)
         }
 
         return scorers[score_type]
@@ -237,11 +308,11 @@ class SciKitModel(PipeSetup):
         return best_model.best_estimator_
 
 
-    def random_search(self, pipe_to_fit, X, y, params, cv=5, n_iter=50, n_jobs=-1, scoring='neg_mean_squared_error'):
+    def random_search(self, pipe_to_fit, X, y, params, cv=5, n_iter=50, n_jobs=-1, scoring='neg_mean_squared_error', fit_params={}):
 
         search = RandomizedSearchCV(pipe_to_fit, params, n_iter=n_iter, cv=cv, 
                                     scoring=scoring, n_jobs=n_jobs, refit=True)
-        best_model = search.fit(X, y)
+        best_model = search.fit(X, y, **fit_params)
 
         return best_model.best_estimator_
 
@@ -255,8 +326,26 @@ class SciKitModel(PipeSetup):
         return score
 
 
-    def cv_predict(self, model, X, y, cv=5, n_jobs=-1, method='predict'):
-        pred = cross_val_predict(model, X, y, cv=cv, n_jobs=n_jobs, method=method)
+    def cv_predict(self, model, X, y, cv=5, sample_weight=False):
+        
+        from sklearn.model_selection import KFold
+
+        pred = []
+        kf = KFold(n_splits=cv)
+        for tr_idx, test_idx in kf.split(X):
+            X_train, X_test = X.loc[tr_idx, :], X.loc[test_idx]
+            y_train, _ = y[tr_idx], y[test_idx]
+
+            if sample_weight:
+                sweight = f'{model.steps[-1][0]}__sample_weight'
+                wts = np.where(y_train > 0, y_train, 0)
+                fit_params={sweight: wts}
+            else:
+                fit_params = {}
+
+            model.fit(X_train, y_train, **fit_params)
+            pred.extend(list(model.predict(X_test)))
+
         return pred
 
 
@@ -276,7 +365,7 @@ class SciKitModel(PipeSetup):
         return cv_time
 
     
-    def cv_predict_time(self, model, X, y, cv_time):
+    def cv_predict_time(self, model, X, y, cv_time, proba=False, fit_params={}):
 
         predictions = []
         self.test_indices = []
@@ -285,8 +374,11 @@ class SciKitModel(PipeSetup):
             X_train, y_train = X.iloc[tr, :], y[tr]
             X_test, _ = X.iloc[te, :], y[te]
             
-            model.fit(X_train, y_train)
-            pred = model.predict(X_test)
+            model.fit(X_train, y_train, **fit_params)
+            if proba:
+                pred = model.predict_proba(X_test)
+            else:
+                pred = model.predict(X_test)
             
             predictions.extend(pred)
             self.test_indices.extend(te)
@@ -351,11 +443,11 @@ class SciKitModel(PipeSetup):
         rmse = np.sqrt(mean_squared_error(y_val, val_predictions))
         r2 = r2_score(y_val, val_predictions)
         mae = mean_absolute_error(y_val, val_predictions)
-        score = mae + rmse - 100*r2
+        score = 100*((mae/np.mean(y_val)) + (rmse/np.mean(y_val)) - r2)
 
         return {'loss': score, 'status': STATUS_OK}
 
-    def cv_predict_time_holdout(self, model):
+    def cv_predict_time_holdout(self, model, sample_weight=False):
   
       """Perform a rolling time-series prediction for both validation data in a training set
          plus predictions on a holdout test set
@@ -385,23 +477,33 @@ class SciKitModel(PipeSetup):
       for (tr_train, te_train), (_, te_hold) in zip(self.cv_time_train, self.cv_time_hold):
 
           # extract out the training and validation datasets from the training folds
-          X_train_cur, y_train_cur = self.X_train.iloc[tr_train, :], self.y_train[tr_train]
-          X_val = self.X_train.iloc[te_train, :]
+          X_train_cur, y_train_cur = self.X_train.loc[tr_train, :], self.y_train[tr_train]
+          X_val = self.X_train.loc[te_train, :]
 
           # fit and predict the validation dataset
-          model.fit(X_train_cur, y_train_cur)
-          pred_val = model.predict(X_val)
+          if sample_weight:
+              sweight = f'{model.steps[-1][0]}__sample_weight'
+              wts = np.where(y_train_cur > 0, y_train_cur, 0)
+              fit_params={sweight: wts}
+          else:
+              fit_params = {}
+
+          model.fit(X_train_cur, y_train_cur, **fit_params)
+          if self.proba: pred_val = model.predict_proba(X_val)[:,1]
+          else: pred_val = model.predict(X_val)
           val_predictions.extend(pred_val)
 
           # predict the holdout dataset for the current time period
           X_hold_test = self.X_hold.iloc[te_hold, :]
-          pred_hold = model.predict(X_hold_test)
+          if self.proba: pred_hold = model.predict_proba(X_hold_test)[:,1]
+          else: pred_hold = model.predict(X_hold_test)
           hold_predictions.extend(pred_hold)
 
       return val_predictions, hold_predictions
 
 
-    def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50, bayes_rand='rand'):
+    def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50,
+                        bayes_rand='rand', proba=False, sample_weight=False, random_seed=1234):
         """Train a time series model using rolling cross-validation combined
            with K-Fold holdouts for a complete holdout prediction set.
 
@@ -446,8 +548,9 @@ class SciKitModel(PipeSetup):
         #----------------
         # Run the KFold train-prediction loop
         #----------------
-        X_val_hold = X_val_hold.sample(frac=1, random_state=1234)
-        y_val_hold = y_val_hold.sample(frac=1, random_state=1234)
+        X_val_hold = X_val_hold.sample(frac=1, random_state=random_seed)
+        y_val_hold = y_val_hold.sample(frac=1, random_state=random_seed)
+
         skf = StratifiedKFold(n_splits=n_splits)
         for val_idx, hold_idx in skf.split(X_val_hold, X_val_hold[col_split]):
             
@@ -474,20 +577,40 @@ class SciKitModel(PipeSetup):
             self.y_hold=y_hold
             self.cv_time_train = cv_time
             self.cv_time_hold = cv_time_hold
+            self.proba = proba
+
+            if sample_weight:
+                sweight = f'{model.steps[-1][0]}__sample_weight'
+                wts = np.where(y_train > 0, y_train, 0)
+                fit_params={sweight: wts}
+            else:
+                fit_params = {}
 
             if self.model_obj=='class':
                 best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
                                                 n_iter=n_iter, scoring=self.scorer('matt_coef'))
+
+            elif self.model_obj=='quantile':
+                best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
+                                                n_iter=n_iter, scoring=self.scorer('pinball'))
             elif self.model_obj=='reg':
-                if bayes_rand=='rand':
-                    best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, n_iter=n_iter)
+                if bayes_rand=='rand':     
+                    best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
+                                                    n_iter=n_iter, fit_params=fit_params)
                 elif bayes_rand=='bayes':
                     best_model = self.bayes_search(model, params, n_iters=n_iter)
 
-            print(best_model)
-            val_pred_cur, hold_pred = self.cv_predict_time_holdout(best_model)
-            _, val_sc = self.test_scores(y_train[cv_time[0][1][0]:], val_pred_cur)
-            _, hold_sc = self.test_scores(y_hold, hold_pred)
+            val_pred_cur, hold_pred = self.cv_predict_time_holdout(best_model, sample_weight)
+
+            if sample_weight:
+                val_wts = y_train[cv_time[0][1][0]:]
+                hold_wts = y_hold
+            else:
+                val_wts = None
+                hold_wts = None
+
+            val_sc, _ = self.test_scores(y_train[cv_time[0][1][0]:], val_pred_cur, val_wts)
+            hold_sc, _ = self.test_scores(y_hold, hold_pred, hold_wts)
             
             # append the scores and best model
             mean_val_sc.append(val_sc); mean_hold_sc.append(hold_sc)
@@ -518,6 +641,8 @@ class SciKitModel(PipeSetup):
             'actual': hold_results.iloc[:, 1].values
             }
 
+        gc.collect()
+
         return best_models, mean_scores, oof_data
 
 
@@ -543,25 +668,36 @@ class SciKitModel(PipeSetup):
             return f1, matt_coef 
 
           
-    def test_scores(self, y, pred):
+    def test_scores(self, y, pred, sample_weight=None, alpha=0.5):
 
         if self.model_obj == 'reg':
-            mse = mean_squared_error(y, pred)
-            r2 = r2_score(y, pred)
+            mse = mean_squared_error(y, pred, sample_weight=sample_weight)
+            r2 = r2_score(y, pred, sample_weight=sample_weight)
             
             for v, m in zip(['Test MSE:', 'Test R2:'], [mse, r2]):
                 print(v, np.round(m, 3))
 
-            return mse, r2
+            return r2, mse
 
         elif self.model_obj == 'class':
-            matt_coef = matthews_corrcoef(y, pred)
-            f1 = f1_score(y, pred)
+            
+            if self.proba:
+                pred = np.int32(np.round(pred))
+            
+            matt_coef = matthews_corrcoef(y, pred, sample_weight=sample_weight)
+            f1 = f1_score(y, pred, sample_weight=sample_weight)
 
             for v, m in zip(['Test MC:', 'Test F1:'], [matt_coef, f1]):
                 print(v, np.round(m, 3))
 
-            return f1, matt_coef
+            return matt_coef, f1
+
+        elif self.model_obj == 'quantile':
+            
+            pinball = mean_pinball_loss(y, pred, sample_weight=sample_weight, alpha=0.5)
+            print('Test Pinball Loss:', np.round(pinball,2))
+
+            return pinball, pinball
 
     def return_labels(self, cols, time_or_all='time'):
         
@@ -597,42 +733,61 @@ class SciKitModel(PipeSetup):
         return X, y
 
         
-    def best_stack(self, est, stack_params, X_stack, y_stack, n_iter=500, print_coef=True, run_adp=False):
+    def best_stack(self, est, stack_params, X_stack, y_stack, n_iter=500, 
+                   print_coef=True, run_adp=False, sample_weight=False):
 
         X_stack_shuf = X_stack.sample(frac=1, random_state=1234).reset_index(drop=True)
         y_stack_shuf = y_stack.sample(frac=1, random_state=1234).reset_index(drop=True)
+
+        if sample_weight:
+            sweight = f'{est.steps[-1][0]}__sample_weight'
+            wts = np.where(y_stack_shuf > 0, y_stack_shuf, 0)
+            fit_params = {sweight: wts}
+        else:
+            fit_params = {}
+            wts=None
 
         if self.model_obj=='class':
             best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
                                             n_iter=n_iter, scoring=self.scorer('matt_coef'))
         elif self.model_obj=='reg':
             best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
-                                            n_iter=n_iter)
+                                            n_iter=n_iter, fit_params=fit_params)
+
+        elif self.model_obj=='quantile':
+            best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
+                                            n_iter=n_iter, scoring=self.scorer('pinball'))
 
         if run_adp:
             # print the OOS scores for ADP and model stack
             print('ADP Score\n--------')
             adp_col = [c for c in X_stack.columns if 'adp' in c]
-            adp_preds = self.cv_predict(self.piece('lr')[1], X_stack_shuf[adp_col], y_stack_shuf, cv=5)
-            adp_score = r2_score(y_stack_shuf, adp_preds)
+            adp_pipe = self.model_pipe([self.piece('lr')])
+            adp_preds = self.cv_predict(adp_pipe, X_stack_shuf[adp_col], y_stack_shuf, cv=5, sample_weight=sample_weight)
+            adp_score = r2_score(y_stack_shuf, adp_preds, sample_weight=wts)
             print(f'ADP R2: {round(adp_score,3)}')
         
         else:
             adp_score = 0
+            adp_preds = 0
 
         print('\nStack Score\n--------')
-        full_preds = self.cv_predict(best_model, X_stack_shuf, y_stack_shuf, cv=5)
-        stack_score = r2_score(y_stack_shuf, full_preds)
-        print(f'Val R2: {round(stack_score,3)}')
+        full_preds = self.cv_predict(best_model, X_stack_shuf, y_stack_shuf, cv=5, sample_weight=sample_weight)
+        stack_score = self.test_scores(y_stack_shuf, full_preds, sample_weight=wts)[0]
 
         if print_coef:
-            try:
-                imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
-            except:
-                imp_cols = X_stack_shuf.columns
+            try: imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
+            except: imp_cols = X_stack_shuf.columns
             self.print_coef(best_model, imp_cols)
 
-        return best_model, round(stack_score,3), round(adp_score,3)
+        scores = {'stack_score': round(stack_score, 3),
+                  'adp_score': round(adp_score, 3)}
+
+        predictions = {'adp': adp_preds,
+                       'stack_pred': full_preds,
+                       'y': y_stack_shuf}
+
+        return best_model, scores, predictions
 
 
 
