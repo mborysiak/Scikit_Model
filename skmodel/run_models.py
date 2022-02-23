@@ -18,7 +18,7 @@ from sklearn.ensemble import RandomForestRegressor
 
 from sklearn.metrics import make_scorer
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from sklearn.metrics import matthews_corrcoef, f1_score
+from sklearn.metrics import matthews_corrcoef, f1_score, brier_score_loss
 from sklearn.metrics import mean_pinball_loss
 import gc
 
@@ -39,6 +39,7 @@ class SciKitModel(PipeSetup):
         """        
         self.data = data
         self.model_obj = model_obj
+        self.proba = False
         np.random.seed(set_seed)
 
 
@@ -85,12 +86,12 @@ class SciKitModel(PipeSetup):
         param_options = {
 
             # feature params
-            'random_sample': {'frac': self.param_range('real', 0.05, 0.3, 0.05, br, 'frac'),
-                              'seed': self.param_range('cat', [12, 123, 1234, 12345, 123456], None, None, br, 'seed')},
-            'agglomeration': {'n_clusters': self.param_range('int', 2, 30, 4, br, 'n_clusters')},
+            'random_sample': {'frac': self.param_range('real', 0.1, 0.8, 0.05, br, 'frac'),
+                              'seed': self.param_range('int', 0, 10000, 1000, br, 'seed')},
+            'agglomeration': {'n_clusters': self.param_range('int', 2, 20, 3, br, 'n_clusters')},
             'pca': {'n_components': self.param_range('int', 2, 30, 4, br, 'n_components')},
-            'k_best': {'k': self.param_range('int', 5, 40, 5, br, 'k')},
-            'select_perc': {'percentile': self.param_range('int', 20, 80, 4, br, 'select_perc')},
+            'k_best': {'k': self.param_range('int', 5, 150, 5, br, 'k')},
+            'select_perc': {'percentile': self.param_range('int', 5, 35, 5, br, 'select_perc')},
             'k_best_c': {'k': self.param_range('int', 5, 40, 4, br, 'k_best_c')},
             'select_perc_c': {'percentile': self.param_range('int', 20, 80, 4, br, 'select_perc_c')},
             'select_from_model': {'estimator': [Ridge(alpha=0.1), Ridge(alpha=1), Ridge(alpha=10),
@@ -279,25 +280,83 @@ class SciKitModel(PipeSetup):
                 
         return params
 
+    @staticmethod
+    def get_quantile_stats(data):
+        from statsmodels.stats.stattools import medcouple
+        q_min, q_max = np.min(data), np.max(data)
+        q1, q2, q3 = np.percentile(data, [25, 50, 75])
+        iqr = q3 - q1
 
-    def scorer(self, score_type):
+        m = medcouple(data)
+
+        if m >= 0: upper_med = q3 + 1.5*np.exp(3*m)*iqr
+        else: upper_med = q3 + 1.5*np.exp(4*m)*iqr
+
+        # if the upper value is higher than q_max, then 
+        # modify values to make it lower than q_max
+        if upper_med > q_max: upper_med = q3 + 1.5*iqr
+        if upper_med > q_max: upper_med = q_max * 0.9
+
+        return q_min, q2, upper_med, q_max, len(data)
+
+    @staticmethod
+    def create_relevance_data(q_min, q2, upper_med, q_max, n):
+
+        from scipy.interpolate import PchipInterpolator as pchip
+
+        x = np.array([q_min, q2, upper_med, q_max])
+        y = np.array([0, 0, 1, 1])
+
+        interp = pchip(x, y)
+
+        freq_data = np.linspace(q_min, q_max, n)
+        freq_line = interp(freq_data)
+        relevance = pd.concat([pd.Series(freq_line, name='phi'), 
+                            pd.Series(freq_data, name='y_cut')], axis=1)
+
+        return relevance
+
+    @staticmethod
+    def filter_relevance(relevance, q_min):
+        min_phi_1 = relevance.loc[relevance.phi==1, 'y_cut'].min()
+        relevance = relevance[~((relevance.phi==0) & (relevance.y_cut!=q_min)) & \
+                            ~((relevance.phi==1) & (relevance.y_cut!=min_phi_1))]
+        relevance = relevance.reset_index(drop=True)
+        relevance['idx'] = 0
+
+        return relevance
+
+    def sera_loss(self, y, y_pred):
+        q_min, q2, upper_med, q_max, n = self.get_quantile_stats(y)
+        
+        relevance = self.create_relevance_data(q_min, q2, upper_med, q_max, n)
+        relevance = self.filter_relevance(relevance, q_min)
+
+        ys = pd.concat([pd.Series(y, name='y'), pd.Series(y_pred, name='y_pred')], axis=1)
+        ys['idx'] = 0
+
+        sera = pd.merge(ys, relevance, on='idx')
+        sera = sera[sera.y >= sera.y_cut]
+        sera['error'] = (sera.y - sera.y_pred)**2
+
+        return sera.error.sum() / np.sum((sera.y**2))
+
+
+    def scorer(self, score_type, **kwargs):
 
         scorers = {
             'r2': make_scorer(r2_score, greater_is_better=True),
             'mse': make_scorer(mean_squared_error, greater_is_better=False),
             'mae': make_scorer(mean_absolute_error, greater_is_better=False),
+            'sera': make_scorer(self.sera_loss, greater_is_better=False),
             'matt_coef': make_scorer(matthews_corrcoef, greater_is_better=True),
+            'brier': make_scorer(brier_score_loss, greater_is_better=False, needs_proba=True),
             'f1': make_scorer(f1_score, greater_is_better=True),
-            'pinball': make_scorer(mean_pinball_loss, greater_is_better=False)
+            'pinball': make_scorer(mean_pinball_loss, greater_is_better=False, **kwargs),
         }
 
         return scorers[score_type]
 
-
-    def fit_opt(self, opt_model):
-        
-        opt_model.fit(self.X, self.y)
-        return opt_model.best_estimator_
 
 
     def grid_search(self, pipe_to_fit, X, y, params, cv=5, scoring='neg_mean_squared_error'):
@@ -317,112 +376,30 @@ class SciKitModel(PipeSetup):
         return best_model.best_estimator_
 
 
-    def cv_score(self, model, X, y, cv=5, scoring='neg_mean_squared_error', 
-                 n_jobs=1, return_mean=True):
-
-        score = cross_val_score(model, X, y, cv=cv, n_jobs=n_jobs, scoring=scoring)
-        if return_mean:
-            score = np.mean(score)
-        return score
-
-
-    def cv_predict(self, model, X, y, cv=5, sample_weight=False):
-        
-        from sklearn.model_selection import KFold
-
-        pred = []
-        kf = KFold(n_splits=cv)
-        for tr_idx, test_idx in kf.split(X):
-            X_train, X_test = X.loc[tr_idx, :], X.loc[test_idx]
-            y_train, _ = y[tr_idx], y[test_idx]
-
-            if sample_weight:
-                sweight = f'{model.steps[-1][0]}__sample_weight'
-                wts = np.where(y_train > 0, y_train, 0)
-                fit_params={sweight: wts}
-            else:
-                fit_params = {}
-
-            model.fit(X_train, y_train, **fit_params)
-            pred.extend(list(model.predict(X_test)))
-
-        return pred
-
-
-    def cv_time_splits(self, col, X, val_start):
-
-        X_sort = X.sort_values(by=col).reset_index(drop=True)
-
-        ts = X_sort[col].unique()
-        ts = ts[ts>=val_start]
-
-        cv_time = []
-        for t in ts:
-            train_idx = list(X_sort[X_sort[col] < t].index)
-            test_idx = list(X_sort[X_sort[col] == t].index)
-            cv_time.append((train_idx, test_idx))
-
-        return cv_time
-
-    
-    def cv_predict_time(self, model, X, y, cv_time, proba=False, fit_params={}):
-
-        predictions = []
-        self.test_indices = []
-        for tr, te in cv_time:
-            
-            X_train, y_train = X.iloc[tr, :], y[tr]
-            X_test, _ = X.iloc[te, :], y[te]
-            
-            model.fit(X_train, y_train, **fit_params)
-            if proba:
-                pred = model.predict_proba(X_test)
-            else:
-                pred = model.predict(X_test)
-            
-            predictions.extend(pred)
-            self.test_indices.extend(te)
-
-        return predictions
-
-        
-    def train_test_split_time(self, X, y, col, time_split):
-
-        X_train_only = X[X[col] < time_split]
-        y_train_only = y[X_train_only.index].reset_index(drop=True)
-        X_train_only.reset_index(drop=True, inplace=True)
-
-        X_val = X[X[col] >= time_split]
-        y_val = y[X_val.index].reset_index(drop=True)
-        X_val.reset_index(drop=True, inplace=True)
-
-        return X_train_only, X_val, y_train_only, y_val
-
-
-    def get_y_val(self):
-        return self.y_train.loc[self.cv_time_train[0][1][0]:]
-
-
     def bayes_search(self, model, params, n_iters=64):
         
         self.cur_model = model
-        try: 
-            self.cur_model.steps[-1][1].n_jobs=2
-            parallelism=8
-        except: 
-            parallelism=16
+        parallelism = 16
+        # try: 
+        #     self.cur_model.steps[-1][1].n_jobs=2
+        #     parallelism=16
+        # except: 
+        #     parallelism=32
 
         spark_trials = SparkTrials(parallelism=parallelism)
+
         best_hyperparameters = fmin(
                                     fn=self.bayes_objective,
                                     space=params,
                                     algo=tpe.suggest,
                                     trials=spark_trials,
-                                    max_evals=n_iters
+                                    max_evals=n_iters,
+                                    show_progressbar=True,
+                                    rstate=np.random.default_rng(42)
                                     )
         best_params = {}
         for k, v in best_hyperparameters.items():
-            if (v).is_integer():
+            if v.is_integer(): #isinstance(v, (int, np.integer)):
                 v = int(v)
             for k_full, _ in params.items():
                 if k in k_full:
@@ -440,232 +417,258 @@ class SciKitModel(PipeSetup):
 
         val_predictions, _ = self.cv_predict_time_holdout(self.cur_model)
         y_val = self.get_y_val()
-        rmse = np.sqrt(mean_squared_error(y_val, val_predictions))
+
+        # rmse = np.sqrt(mean_squared_error(y_val, val_predictions))
+        # mae = mean_absolute_error(y_val, val_predictions)
+        # score = 100*((mae/np.mean(y_val)) + (rmse/np.mean(y_val)) - r2)
         r2 = r2_score(y_val, val_predictions)
-        mae = mean_absolute_error(y_val, val_predictions)
-        score = 100*((mae/np.mean(y_val)) + (rmse/np.mean(y_val)) - r2)
+        sera = self.sera_loss(y_val, val_predictions)
+
+        score = 100*(3*sera - r2)
 
         return {'loss': score, 'status': STATUS_OK}
 
-    def cv_predict_time_holdout(self, model, sample_weight=False):
-  
-      """Perform a rolling time-series prediction for both validation data in a training set
-         plus predictions on a holdout test set
 
-         For example, train on slices 1-5 and predict slice 6a for the validation data that will
-         be added to training and also predict 6b for holdout test data. Next train on slices
-         1-6a and predict 7a + 7b, while storing 6b, 7b, etc. separately.
+    def cv_score(self, model, X, y, cv=5, scoring='neg_mean_squared_error', 
+                 n_jobs=1, return_mean=True):
 
-          Args:
-              model (sklearn.Model or Pipe): Model or pipeline to be trained
-              X_train (pandas.DataFrame or numpy.array): Set of samples and features for training data with time component
-              y_train (pandas.Series or numpy.array): Target to be predicted
-              X_hold (pandas.Series or numpy.array): Subset of X data held-out to only be predicted
-              cv_time_train (tuple): Indices of data to be trained / validated on the X_train/y_trian datasets for rolling time
-              cv_time_hold (tuple): Indices of data to be predicted on holdout dataset for rolling time
-
-          Returns:
-              list: In fold predictions for validation data
-              list: Out of fold predictions for holdout data
-          """ 
-
-      # set up list to store validation and holdout predictions + dataframe indices
-      val_predictions = []
-      hold_predictions = []
-
-      # iterate through both the training and holdout time series indices
-      for (tr_train, te_train), (_, te_hold) in zip(self.cv_time_train, self.cv_time_hold):
-
-          # extract out the training and validation datasets from the training folds
-          X_train_cur, y_train_cur = self.X_train.loc[tr_train, :], self.y_train[tr_train]
-          X_val = self.X_train.loc[te_train, :]
-
-          # fit and predict the validation dataset
-          if sample_weight:
-              sweight = f'{model.steps[-1][0]}__sample_weight'
-              wts = np.where(y_train_cur > 0, y_train_cur, 0)
-              fit_params={sweight: wts}
-          else:
-              fit_params = {}
-
-          model.fit(X_train_cur, y_train_cur, **fit_params)
-          if self.proba: pred_val = model.predict_proba(X_val)[:,1]
-          else: pred_val = model.predict(X_val)
-          val_predictions.extend(pred_val)
-
-          # predict the holdout dataset for the current time period
-          X_hold_test = self.X_hold.iloc[te_hold, :]
-          if self.proba: pred_hold = model.predict_proba(X_hold_test)[:,1]
-          else: pred_hold = model.predict(X_hold_test)
-          hold_predictions.extend(pred_hold)
-
-      return val_predictions, hold_predictions
+        score = cross_val_score(model, X, y, cv=cv, n_jobs=n_jobs, scoring=scoring)
+        if return_mean:
+            score = np.mean(score)
+        return score
 
 
-    def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50,
-                        bayes_rand='rand', proba=False, sample_weight=False, random_seed=1234):
-        """Train a time series model using rolling cross-validation combined
-           with K-Fold holdouts for a complete holdout prediction set.
-
-           E.g. Train on 1-4 time-stratified folds using rolling cross-validation
-                and predict Fold 5. Train on Folds 1,2,3,5 and predict Fold 4.
-
-        Args:
-            model (sklearn.Model or Pipe): Model or pipeline to be trained
-            X (pandas.DataFrame or numpy.array): Set of samples and features for training data with time component
-            y (pandas.Series or numpy.array): Target to be predicted
-            params (dict): Dictionary containing hyperparameters to optimize
-            col_split (str): Time column to be used for splitting up dataset
-            time_split (int): Point in time to split into training (early) or validation (late)
-            n_splits (int, optional): Number of folds to split validation. Defaults to 5.
-            n_iter (int, optional): Random search iterations for optimization. Defaults to 50.
-
-        Returns:
-            sklearn.Model or Pipe: Best performing model with hyperparameters
-            list: Validation score metrics
-            dict: Out of fold predictions for each holdout set and actual target data
-        """        
-        # split into the train only and val/holdout datasets
-        X_train_only, X_val_hold, y_train_only, y_val_hold = self.train_test_split_time(X, y, col_split, time_split)
-
-        #--------------
-        # Set up place holders for metrics
-        #--------------
+    def cv_predict(self, model, X, y, cv=5, sample_weight=False):
         
-        # list to store accuracy metrics
-        mean_val_sc = []
-        mean_hold_sc = []
-        
-        # # arrays to hold all predictions and actuals
-        # hold_predictions = np.array([])
-        # hold_actuals = np.array([])
-        val_predictions = np.array([])
-        hold_results = pd.DataFrame()
+        from sklearn.model_selection import KFold
 
-        # list to hold the best models
-        best_models = []
+        predictions = []
+        kf = KFold(n_splits=cv)
+        for tr_idx, test_idx in kf.split(X):
+            X_train, X_test = X.loc[tr_idx, :], X.loc[test_idx]
+            y_train, _ = y[tr_idx], y[test_idx]
 
-        #----------------
-        # Run the KFold train-prediction loop
-        #----------------
-        X_val_hold = X_val_hold.sample(frac=1, random_state=random_seed)
-        y_val_hold = y_val_hold.sample(frac=1, random_state=random_seed)
+            fit_params = self.weight_params(model, y_train, sample_weight)
+            model.fit(X_train, y_train, **fit_params)
+            predictions = self.model_predict(model, X_test, predictions)
 
-        skf = StratifiedKFold(n_splits=n_splits)
-        for val_idx, hold_idx in skf.split(X_val_hold, X_val_hold[col_split]):
+        return predictions
+
+
+    @staticmethod
+    def cv_time_splits(X, col, val_start):
+      
+        ts = X[col].unique()
+        ts = ts[ts>=val_start]
+
+        cv_time = []
+        for t in ts:
+            train_idx = list(X[X[col] < t].index)
+            test_idx = list(X[X[col] == t].index)
+            cv_time.append((train_idx, test_idx))
+
+        return cv_time
+
+    
+    def cv_predict_time(self, model, X, y, cv_time, fit_params={}):
+
+        predictions = []
+        self.test_indices = []
+        for tr, te in cv_time:
             
-            print('-------')
+            X_train, y_train = X.iloc[tr, :], y[tr]
+            X_test, _ = X.iloc[te, :], y[te]
+            
+            model.fit(X_train, y_train, **fit_params)
+            predictions = self.model_predict(model, X_test, predictions)
+            self.test_indices.extend(te)
+
+        return predictions
+
+        
+    def train_test_split_time(self, X, y, X_labels, col, time_split):
+
+        X_train_only = X[X[col] < time_split]
+        y_train_only = y[X_train_only.index].reset_index(drop=True)
+        X_train_only.reset_index(drop=True, inplace=True)
+
+        X_val = X[X[col] >= time_split]
+        X_labels = X_labels.loc[X_labels.index.isin(X_val.index)]
+
+        y_val = y[X_val.index].reset_index(drop=True)
+        X_val.reset_index(drop=True, inplace=True)
+        X_labels.reset_index(drop=True, inplace=True)
+
+        return X_train_only, X_val, y_train_only, y_val, X_labels
+
+
+    def get_fold_data(self, X, y, X_labels, time_col, val_cut, n_splits=5, shuffle=True, random_state=1234):
+  
+        # split the X and y data into purely Train vs Holdout / Validation
+        X_train_only, X_val_hold, y_train_only, y_val_hold, X_labels = self.train_test_split_time(X, y, X_labels, time_col, val_cut)
+
+        # stratify split the Holdout / Validation data and append to dictionary for each fold
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
+        folds = {}; i=-1
+        for val_idx, hold_idx in skf.split(X_val_hold, X_val_hold[time_col]):
+
+            i+=1; folds[i] = {}
 
             # split the val/hold dataset into random validation and holdout sets
-            X_val, X_hold = X_val_hold.iloc[val_idx,:], X_val_hold.iloc[hold_idx,:]
-            y_val, y_hold = y_val_hold.iloc[val_idx], y_val_hold.iloc[hold_idx]
+            X_val, X_hold = X_val_hold.loc[val_idx,:], X_val_hold.loc[hold_idx,:]
+            y_val, y_hold = y_val_hold.loc[val_idx], y_val_hold.loc[hold_idx]
 
             # concat the current training set using train and validation folds
             X_train = pd.concat([X_train_only, X_val], axis=0).reset_index(drop=True)
             y_train = pd.concat([y_train_only, y_val], axis=0).reset_index(drop=True)
 
+            folds[i]['X_train'] = X_train
+            folds[i]['y_train'] = y_train
+
+            folds[i]['X_hold'] = X_hold
+            folds[i]['y_hold'] = y_hold
             
-            # get the CV time splits and find the best model
-            cv_time = self.cv_time_splits(col_split, X_train, time_split)
+            folds[i]['X_val_labels'] = X_labels.loc[val_idx].reset_index(drop=True)
+            folds[i]['X_hold_labels'] = X_labels.loc[hold_idx].reset_index(drop=True)
             
-            # score the best model on validation and holdout sets
-            cv_time_hold = self.cv_time_splits(col_split, X_hold, time_split)
+        return folds
+
+
+    @staticmethod
+    def unpack_fold(folds, i):
+        return folds[i]['X_train'], folds[i]['y_train'], folds[i]['X_hold'], folds[i]['y_hold'], folds[i]['X_val_labels'], folds[i]['X_hold_labels']
+
+
+    def get_y_val(self):
+        return self.y_train.loc[self.cv_time_train[0][1][0]:]
+
+    @staticmethod
+    def weight_params(model, wt_col, sample_weight=False):
+        if sample_weight:
+            sweight = f'{model.steps[-1][0]}__sample_weight'
+            wts = np.where(wt_col > 0, wt_col, 0)
+            fit_params={sweight: wts}
+        else:
+            fit_params = {}
+        return fit_params
+
+    @staticmethod
+    def metrics_weights(val, hold, sample_weight):
+        if sample_weight:
+            val_wts = val
+            hold_wts = hold 
+        else:
+            val_wts = None
+            hold_wts = None
+        return val_wts, hold_wts
+
+
+    def model_predict(self, model, X, predictions_list):
+        if self.proba: pred_val = model.predict_proba(X)[:,1]
+        else: pred_val = model.predict(X)
+        predictions_list.extend(pred_val)
+        
+        return predictions_list
+
+
+    def cv_predict_time_holdout(self, model, sample_weight=False):
+
+        # set up list to store validation and holdout predictions
+        val_predictions = []
+        hold_predictions = []
+
+        # iterate through both the training and holdout time series indices
+        for (tr_train, te_train), (_, te_hold) in zip(self.cv_time_train, self.cv_time_hold):
+
+            # extract out the training and validation datasets from the training folds
+            X_train_cur, y_train_cur = self.X_train.loc[tr_train, :], self.y_train[tr_train]
+            X_val = self.X_train.loc[te_train, :]
+            X_hold = self.X_hold.loc[te_hold, :]
+
+            # fit and predict the validation dataset
+            fit_params = self.weight_params(model, y_train_cur, sample_weight)
+            model.fit(X_train_cur, y_train_cur, **fit_params)
+
+            # predict the holdout dataset for the current time period
+            val_predictions = self.model_predict(model, X_val, val_predictions)
+            hold_predictions = self.model_predict(model, X_hold, hold_predictions)
+
+        return val_predictions, hold_predictions
+
+
+    def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50,
+                       bayes_rand='rand', proba=False, sample_weight=False, random_seed=1234, alpha=0.5,
+                       scoring=None):
+   
+        X_labels = self.data[['player', 'team', 'week', 'year', 'y_act']].copy()
+        folds = self.get_fold_data(X, y, X_labels, time_col=col_split, val_cut=time_split, 
+                                   n_splits=n_splits, random_state=random_seed)
+        
+        hold_results = pd.DataFrame()
+        val_results = pd.DataFrame()
+        best_models = []
+        for fold in range(n_splits):
+
+            print('-------')
+
+            # get the train and holdout data
+            X_train, y_train, X_hold, y_hold, X_val_labels, X_hold_labels = self.unpack_fold(folds, fold)
+            cv_time_train = self.cv_time_splits(X_train, 'game_date', time_split)
+            cv_time_hold = self.cv_time_splits(X_hold, 'game_date', time_split)
+
+            fit_params = self.weight_params(model, y_train, sample_weight)
+            
+            if scoring is None and self.model_obj=='reg': scoring = self.scorer('sera')
+            elif scoring is None and self.model_obj=='class': scoring = self.scorer('brier')
+            elif scoring is None and self.model_obj=='quantile': scoring = self.scorer('pinball', **{'alpha': alpha})
 
             self.X_train = X_train
-            self.y_train=y_train
-            self.X_hold=X_hold
-            self.y_hold=y_hold
-            self.cv_time_train = cv_time
+            self.y_train = y_train
+            self.X_hold = X_hold
+            self.y_hold = y_hold
+            self.cv_time_train = cv_time_train
             self.cv_time_hold = cv_time_hold
-            self.proba = proba
+            self.proba=proba
 
-            if sample_weight:
-                sweight = f'{model.steps[-1][0]}__sample_weight'
-                wts = np.where(y_train > 0, y_train, 0)
-                fit_params={sweight: wts}
-            else:
-                fit_params = {}
+            if bayes_rand == 'rand':
+                best_model = self.random_search(model, X_train, y_train, params, cv=cv_time_train, 
+                                                n_iter=n_iter, scoring=scoring, fit_params=fit_params)
+            elif bayes_rand == 'bayes':
+                best_model = self.bayes_search(model, params, n_iters=n_iter)
 
-            if self.model_obj=='class':
-                best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
-                                                n_iter=n_iter, scoring=self.scorer('matt_coef'))
-
-            elif self.model_obj=='quantile':
-                best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
-                                                n_iter=n_iter, scoring=self.scorer('pinball'))
-            elif self.model_obj=='reg':
-                if bayes_rand=='rand':     
-                    best_model = self.random_search(model, X_train, y_train, params, cv=cv_time, 
-                                                    n_iter=n_iter, fit_params=fit_params)
-                elif bayes_rand=='bayes':
-                    best_model = self.bayes_search(model, params, n_iters=n_iter)
-
-            val_pred_cur, hold_pred = self.cv_predict_time_holdout(best_model, sample_weight)
-
-            if sample_weight:
-                val_wts = y_train[cv_time[0][1][0]:]
-                hold_wts = y_hold
-            else:
-                val_wts = None
-                hold_wts = None
-
-            val_sc, _ = self.test_scores(y_train[cv_time[0][1][0]:], val_pred_cur, val_wts)
-            hold_sc, _ = self.test_scores(y_hold, hold_pred, hold_wts)
-            
-            # append the scores and best model
-            mean_val_sc.append(val_sc); mean_hold_sc.append(hold_sc)
             best_models.append(best_model)
 
-            # # get the holdout and validation predictions and store
-            # hold_predictions = np.concatenate([hold_predictions, np.array(hold_pred)])
-            # hold_actuals = np.concatenate([hold_actuals, y_hold])
+            val_pred, hold_pred = self.cv_predict_time_holdout(best_model, sample_weight)
 
-            hold_results_cur = pd.DataFrame([hold_idx, y_hold, hold_pred]).T
+            val_wts, hold_wts = self.metrics_weights(self.get_y_val(), y_hold, sample_weight)
+            y_val = self.get_y_val()
+            _, _ = self.test_scores(y_val, val_pred, val_wts)
+            _, _ = self.test_scores(y_hold, hold_pred, hold_wts)
+
+            hold_results_cur = pd.Series(hold_pred, name='pred')
+            hold_results_cur = pd.concat([X_hold_labels, hold_results_cur], axis=1)
             hold_results = pd.concat([hold_results, hold_results_cur], axis=0)
-            
-            # cv_time = self.cv_time_splits(col_split, X, time_split)
-            # val_pred = self.cv_predict_time(best_model, X, y, cv_time)
-            # val_predictions = np.append(val_predictions, np.array(val_pred))
 
-        # calculate the mean scores
-        mean_scores = [np.round(np.mean(mean_val_sc), 3), np.round(np.mean(mean_hold_sc), 3)]
-        print('Mean Scores:', mean_scores)
-        
-        # # aggregate all the prediction for val, holds, and combined val/hold
-        # val_predictions = np.mean(val_predictions.reshape(n_splits, len(val_pred)), axis=0)
+            val_results_cur = pd.Series(val_pred, name='pred')
+            val_results_cur = pd.concat([X_val_labels, val_results_cur], axis=1)
+            val_results = pd.concat([val_results, val_results_cur], axis=0)
+
+        print('\nOverall\n---------------')
+        val_wts, hold_wts = self.metrics_weights(val_results.y_act.values, hold_results.y_act.values, sample_weight)
+        hold_score, _ = self.test_scores(hold_results.y_act, hold_results.pred, hold_wts)
+        val_score, _ = self.test_scores(val_results.y_act, val_results.pred, val_wts)
 
         oof_data = {
-            'val': val_predictions, 
-            'hold': hold_results.iloc[:, 2].values,
-            # 'combined': np.mean([val_predictions, hold_predictions], axis=0),
-            'actual': hold_results.iloc[:, 1].values
+            'scores': [np.round(val_score,3), np.round(hold_score,3)],
+            'full_val': val_results, 
+            'full_hold': hold_results, 
+            'hold': hold_results.pred.values,
+            'actual': hold_results.y_act.values
             }
 
         gc.collect()
 
-        return best_models, mean_scores, oof_data
-
-
-    def val_scores(self, model, X, y, cv):
-
-        if self.model_obj == 'reg':
-            mse = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('mse'))
-            r2 = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('r2'))
-            r2_fit = model.fit(X, y).score(X, y)
-
-            for v, m in zip(['Val MSE:', 'Val R2:', 'Fit R2:'], [mse, r2, r2_fit]):
-                print(v, np.round(m, 3))
-
-            return mse, r2
-
-        elif self.model_obj == 'class':
-            matt_coef = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('matt_coef'))
-            f1 = self.cv_score(model, X, y, cv=cv, scoring=self.scorer('f1'))
-
-            for v, m in zip(['Val MC:', 'Val F1:'], [matt_coef, f1]):
-                print(v, np.round(m, 3))
-
-            return f1, matt_coef 
+        return best_models, oof_data
 
           
     def test_scores(self, y, pred, sample_weight=None, alpha=0.5):
@@ -673,8 +676,9 @@ class SciKitModel(PipeSetup):
         if self.model_obj == 'reg':
             mse = mean_squared_error(y, pred, sample_weight=sample_weight)
             r2 = r2_score(y, pred, sample_weight=sample_weight)
+            sera = self.sera_loss(y, pred)
             
-            for v, m in zip(['Test MSE:', 'Test R2:'], [mse, r2]):
+            for v, m in zip(['Test MSE:', 'Test R2:', 'Test Sera:'], [mse, r2, sera]):
                 print(v, np.round(m, 3))
 
             return r2, mse
@@ -685,16 +689,16 @@ class SciKitModel(PipeSetup):
                 pred = np.int32(np.round(pred))
             
             matt_coef = matthews_corrcoef(y, pred, sample_weight=sample_weight)
-            f1 = f1_score(y, pred, sample_weight=sample_weight)
+            bs = brier_score_loss(y, pred, sample_weight=sample_weight)
 
-            for v, m in zip(['Test MC:', 'Test F1:'], [matt_coef, f1]):
+            for v, m in zip(['Test MC:', 'Test Brier:'], [matt_coef, bs]):
                 print(v, np.round(m, 3))
 
-            return matt_coef, f1
+            return matt_coef, bs
 
         elif self.model_obj == 'quantile':
             
-            pinball = mean_pinball_loss(y, pred, sample_weight=sample_weight, alpha=0.5)
+            pinball = mean_pinball_loss(y, pred, sample_weight=sample_weight, alpha=alpha)
             print('Test Pinball Loss:', np.round(pinball,2))
 
             return pinball, pinball
@@ -734,29 +738,30 @@ class SciKitModel(PipeSetup):
 
         
     def best_stack(self, est, stack_params, X_stack, y_stack, n_iter=500, 
-                   print_coef=True, run_adp=False, sample_weight=False):
+                   print_coef=True, run_adp=False, sample_weight=False, random_state=1234,
+                   alpha=0.5, scoring=None):
 
-        X_stack_shuf = X_stack.sample(frac=1, random_state=1234).reset_index(drop=True)
-        y_stack_shuf = y_stack.sample(frac=1, random_state=1234).reset_index(drop=True)
+        # X_stack_shuf = X_stack.copy().sample(frac=1, random_state=random_state).reset_index(drop=True)
+        # y_stack_shuf = y_stack.copy().sample(frac=1, random_state=random_state).reset_index(drop=True)
 
-        if sample_weight:
-            sweight = f'{est.steps[-1][0]}__sample_weight'
-            wts = np.where(y_stack_shuf > 0, y_stack_shuf, 0)
-            fit_params = {sweight: wts}
-        else:
-            fit_params = {}
-            wts=None
+        from sklearn.model_selection import RepeatedKFold
+        cv = RepeatedKFold(n_splits=5, n_repeats=2, random_state=random_state)
+        fit_params = self.weight_params(est, y_stack_shuf, sample_weight=sample_weight)
 
-        if self.model_obj=='class':
-            best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
-                                            n_iter=n_iter, scoring=self.scorer('matt_coef'))
-        elif self.model_obj=='reg':
-            best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
-                                            n_iter=n_iter, fit_params=fit_params)
+        if scoring is None and self.model_obj=='reg': scoring = self.scorer('sera')
+        if scoring is None and self.model_obj=='quantile': scoring = self.scorer('quantile', **{'alpha': alpha})
+        print('Users Scorer:', scoring)
 
-        elif self.model_obj=='quantile':
-            best_model = self.random_search(est, X_stack_shuf, y_stack_shuf, stack_params, cv=5, 
-                                            n_iter=n_iter, scoring=self.scorer('pinball'))
+        best_model = self.random_search(est, X_stack, y_stack, stack_params, cv=cv, 
+                                        n_iter=n_iter, scoring=scoring, fit_params=fit_params)
+
+        X_stack_shuf = X_stack.sample(frac=1, random_state=random_state*17)
+        orig_index = X_stack_shuf.index
+        X_stack_shuf = X_stack_shuf.reset_index(drop=True)
+        y_stack_shuf = y_stack.sample(frac=1, random_state=random_state*17).reset_index(drop=True)
+
+        fit_params = self.weight_params(est, y_stack_shuf, sample_weight=sample_weight)
+        wts, _ = self.metrics_weights(y_stack_shuf.values, y_stack_shuf.values, sample_weight)
 
         if run_adp:
             # print the OOS scores for ADP and model stack
@@ -772,8 +777,12 @@ class SciKitModel(PipeSetup):
             adp_preds = 0
 
         print('\nStack Score\n--------')
+        
+
         full_preds = self.cv_predict(best_model, X_stack_shuf, y_stack_shuf, cv=5, sample_weight=sample_weight)
         stack_score = self.test_scores(y_stack_shuf, full_preds, sample_weight=wts)[0]
+        full_preds = pd.Series(full_preds, index=orig_index).sort_index().values
+        y_orig = pd.Series(y_stack_shuf.values, index=orig_index).sort_index().values
 
         if print_coef:
             try: imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
@@ -785,9 +794,12 @@ class SciKitModel(PipeSetup):
 
         predictions = {'adp': adp_preds,
                        'stack_pred': full_preds,
-                       'y': y_stack_shuf}
+                       'y': y_orig}
 
         return best_model, scores, predictions
+
+
+    
 
 
 

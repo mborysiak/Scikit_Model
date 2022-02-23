@@ -128,6 +128,13 @@ class RandomSample(BaseEstimator, TransformerMixin):
         return X.sample(frac=self.frac, axis=1, random_state=self.seed)
 
 
+class SelectAtMostKBest(SelectKBest):
+
+    def _check_params(self, X, y):
+        if not (self.k == "all" or 0 <= self.k <= X.shape[1]):
+            # set k to "all" (skip feature selection), if less than k features are available
+            self.k = "all"
+
 
 class PipeSetup(DataSetup):
 
@@ -237,7 +244,7 @@ class PipeSetup(DataSetup):
                 'select_perc': SelectPercentile(score_func=f_regression, percentile=10),
                 'select_perc_c': SelectPercentile(score_func=f_classif, percentile=10),
                 'select_from_model': SelectFromModel(estimator=Ridge()),
-                'k_best': SelectKBest(score_func=f_regression, k=10),
+                'k_best': SelectAtMostKBest(score_func=f_regression, k=10),
                 'k_best_c': SelectKBest(score_func=f_classif, k=10),
                 'feature_switcher': FeatureExtractionSwitcher(),
 
