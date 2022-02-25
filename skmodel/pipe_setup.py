@@ -245,7 +245,7 @@ class PipeSetup(DataSetup):
                 'select_perc_c': SelectPercentile(score_func=f_classif, percentile=10),
                 'select_from_model': SelectFromModel(estimator=Ridge()),
                 'k_best': SelectAtMostKBest(score_func=f_regression, k=10),
-                'k_best_c': SelectKBest(score_func=f_classif, k=10),
+                'k_best_c': SelectAtMostKBest(score_func=f_classif, k=10),
                 'feature_switcher': FeatureExtractionSwitcher(),
 
                 # feature transformation

@@ -26,6 +26,10 @@ import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning) 
 warnings.filterwarnings("ignore", category=UserWarning) 
 
+import pyspark as ps
+conf = ps.SparkConf()
+conf.set("spark.executor.heartbeatInterval","3600s")
+
 class SciKitModel(PipeSetup):
     
     def __init__(self, data, model_obj='reg', set_seed=1234):
@@ -40,7 +44,20 @@ class SciKitModel(PipeSetup):
         self.data = data
         self.model_obj = model_obj
         self.proba = False
+        self.stacking = False
+        self.alpha = 0.5
         np.random.seed(set_seed)
+
+    
+    import contextlib
+    @contextlib.contextmanager
+    def temp_seed(self, seed):
+        state = np.random.get_state()
+        np.random.seed(seed)
+        try:
+            yield
+        finally:
+            np.random.set_state(state)
 
 
     def param_range(self, var_type, low, high, spacing, bayes_rand, label):
@@ -294,9 +311,11 @@ class SciKitModel(PipeSetup):
 
         # if the upper value is higher than q_max, then 
         # modify values to make it lower than q_max
-        if upper_med > q_max: upper_med = q3 + 1.5*iqr
-        if upper_med > q_max: upper_med = q_max * 0.9
-
+        if upper_med >= q_max: upper_med = q3 + 1.5*iqr
+        if upper_med >= q_max: upper_med = q_max * 0.9
+        if q2 >= upper_med: q2 = upper_med * 0.9
+        if q_min >= q2: q_min = q2 * 0.9
+        
         return q_min, q2, upper_med, q_max, len(data)
 
     @staticmethod
@@ -358,6 +377,25 @@ class SciKitModel(PipeSetup):
         return scorers[score_type]
 
 
+    def custom_score(self, y, y_pred):
+        
+        if self.model_obj=='reg':
+            r2 = r2_score(y, y_pred)
+            sera = self.sera_loss(y, y_pred)
+            score = 100*(3*sera - r2)
+
+        elif self.model_obj=='class':
+            matt = matthews_corrcoef(np.where(np.array(y)>=0.5, 1, 0), np.where(np.array(y_pred)>=0.5, 1, 0))
+            brier = brier_score_loss(y, y_pred)
+            score = brier - matt
+        
+        elif self.model_obj=='quantile':
+            score = mean_pinball_loss(y, y_pred, alpha=self.alpha)
+
+        return score
+
+        
+
 
     def grid_search(self, pipe_to_fit, X, y, params, cv=5, scoring='neg_mean_squared_error'):
 
@@ -379,12 +417,9 @@ class SciKitModel(PipeSetup):
     def bayes_search(self, model, params, n_iters=64):
         
         self.cur_model = model
+        try: self.cur_model.steps[-1][1].n_jobs=2
+        except: pass
         parallelism = 16
-        # try: 
-        #     self.cur_model.steps[-1][1].n_jobs=2
-        #     parallelism=16
-        # except: 
-        #     parallelism=32
 
         spark_trials = SparkTrials(parallelism=parallelism)
 
@@ -418,15 +453,62 @@ class SciKitModel(PipeSetup):
         val_predictions, _ = self.cv_predict_time_holdout(self.cur_model)
         y_val = self.get_y_val()
 
-        # rmse = np.sqrt(mean_squared_error(y_val, val_predictions))
-        # mae = mean_absolute_error(y_val, val_predictions)
-        # score = 100*((mae/np.mean(y_val)) + (rmse/np.mean(y_val)) - r2)
         r2 = r2_score(y_val, val_predictions)
         sera = self.sera_loss(y_val, val_predictions)
 
         score = 100*(3*sera - r2)
 
         return {'loss': score, 'status': STATUS_OK}
+
+
+    @staticmethod
+    def param_select(params):
+        param_select = {}
+        for k, v in params.items():
+            param_select[k] = np.random.choice(v)
+        return param_select
+
+
+    def rand_objective(self, params):
+
+        self.cur_model.set_params(**params) 
+
+        try:
+            if self.stacking:
+                val_predictions = self.cv_predict(self.cur_model)
+                y_val = self.y_vals
+            else:
+                val_predictions, _ = self.cv_predict_time_holdout(self.cur_model)
+                y_val = self.get_y_val()
+
+            
+            score = self.custom_score(y_val, val_predictions)
+        except:
+            print('Trial Failed')
+            score=100000000
+
+        return score
+
+    def custom_rand_search(self, model, params, n_iters):
+
+        from joblib import Parallel, delayed
+        self.cur_model = model
+
+        with self.temp_seed(self.randseed):
+            param_list = [self.param_select(params) for _ in range(n_iters)]
+
+        scores = Parallel(n_jobs=-1, verbose=0)(delayed(self.rand_objective)(p) for p in param_list)
+
+        param_output = pd.DataFrame(param_list, index=range(n_iters))
+        param_output['scores'] = scores
+
+        best_params = param_list[np.argmin(scores)]
+        model.set_params(**best_params)
+        
+        try: model.steps[-1][1].n_jobs=-1
+        except: pass
+
+        return model, param_output
 
 
     def cv_score(self, model, X, y, cv=5, scoring='neg_mean_squared_error', 
@@ -438,19 +520,26 @@ class SciKitModel(PipeSetup):
         return score
 
 
-    def cv_predict(self, model, X, y, cv=5, sample_weight=False):
+    def cv_predict(self, model, cv=5, sample_weight=False):
         
         from sklearn.model_selection import KFold
 
+        X = self.X
+        y = self.y
+
         predictions = []
-        kf = KFold(n_splits=cv)
+        self.y_vals = []
+        self.test_idx = []
+        kf = KFold(n_splits=cv, random_state=self.randseed, shuffle=True)
         for tr_idx, test_idx in kf.split(X):
             X_train, X_test = X.loc[tr_idx, :], X.loc[test_idx]
-            y_train, _ = y[tr_idx], y[test_idx]
+            y_train, y_test = y[tr_idx], y[test_idx]
+            self.test_idx.extend(test_idx)
 
             fit_params = self.weight_params(model, y_train, sample_weight)
             model.fit(X_train, y_train, **fit_params)
             predictions = self.model_predict(model, X_test, predictions)
+            self.y_vals.extend(y_test)
 
         return predictions
 
@@ -606,10 +695,12 @@ class SciKitModel(PipeSetup):
         
         hold_results = pd.DataFrame()
         val_results = pd.DataFrame()
+        param_scores = pd.DataFrame()
         best_models = []
+        i_seed = 5
         for fold in range(n_splits):
 
-            print('-------')
+            print('-----------------')
 
             # get the train and holdout data
             X_train, y_train, X_hold, y_hold, X_val_labels, X_hold_labels = self.unpack_fold(folds, fold)
@@ -629,6 +720,8 @@ class SciKitModel(PipeSetup):
             self.cv_time_train = cv_time_train
             self.cv_time_hold = cv_time_hold
             self.proba=proba
+            self.randseed = random_seed * i_seed
+            self.alpha
 
             if bayes_rand == 'rand':
                 best_model = self.random_search(model, X_train, y_train, params, cv=cv_time_train, 
@@ -636,13 +729,18 @@ class SciKitModel(PipeSetup):
             elif bayes_rand == 'bayes':
                 best_model = self.bayes_search(model, params, n_iters=n_iter)
 
+            elif bayes_rand == 'custom_rand':
+                best_model, ps = self.custom_rand_search(model, params, n_iters=n_iter)
+
             best_models.append(best_model)
+            param_scores = pd.concat([param_scores, ps], axis=0)
 
             val_pred, hold_pred = self.cv_predict_time_holdout(best_model, sample_weight)
 
             val_wts, hold_wts = self.metrics_weights(self.get_y_val(), y_hold, sample_weight)
             y_val = self.get_y_val()
-            _, _ = self.test_scores(y_val, val_pred, val_wts)
+            _, _ = self.test_scores(y_val, val_pred, val_wts, label='Val')
+            print('---')
             _, _ = self.test_scores(y_hold, hold_pred, hold_wts)
 
             hold_results_cur = pd.Series(hold_pred, name='pred')
@@ -653,9 +751,12 @@ class SciKitModel(PipeSetup):
             val_results_cur = pd.concat([X_val_labels, val_results_cur], axis=1)
             val_results = pd.concat([val_results, val_results_cur], axis=0)
 
-        print('\nOverall\n---------------')
+            i_seed += 1
+
+        print('\nOverall\n==============')
         val_wts, hold_wts = self.metrics_weights(val_results.y_act.values, hold_results.y_act.values, sample_weight)
-        hold_score, _ = self.test_scores(hold_results.y_act, hold_results.pred, hold_wts)
+        hold_score, _ = self.test_scores(hold_results.y_act, hold_results.pred, hold_wts, label='val')
+        print('---')
         val_score, _ = self.test_scores(val_results.y_act, val_results.pred, val_wts)
 
         oof_data = {
@@ -668,17 +769,17 @@ class SciKitModel(PipeSetup):
 
         gc.collect()
 
-        return best_models, oof_data
+        return best_models, oof_data, param_scores
 
           
-    def test_scores(self, y, pred, sample_weight=None, alpha=0.5):
+    def test_scores(self, y, pred, sample_weight=None, alpha=0.5, label='Test'):
 
         if self.model_obj == 'reg':
             mse = mean_squared_error(y, pred, sample_weight=sample_weight)
             r2 = r2_score(y, pred, sample_weight=sample_weight)
             sera = self.sera_loss(y, pred)
             
-            for v, m in zip(['Test MSE:', 'Test R2:', 'Test Sera:'], [mse, r2, sera]):
+            for v, m in zip([f'{label} MSE:', f'{label} R2:', f'{label} Sera:'], [mse, r2, sera]):
                 print(v, np.round(m, 3))
 
             return r2, mse
@@ -737,40 +838,29 @@ class SciKitModel(PipeSetup):
         return X, y
 
         
-    def best_stack(self, est, stack_params, X_stack, y_stack, n_iter=500, 
+    def best_stack(self, model, stack_params, X_stack, y_stack, n_iter=500, 
                    print_coef=True, run_adp=False, sample_weight=False, random_state=1234,
                    alpha=0.5, scoring=None):
 
-        # X_stack_shuf = X_stack.copy().sample(frac=1, random_state=random_state).reset_index(drop=True)
-        # y_stack_shuf = y_stack.copy().sample(frac=1, random_state=random_state).reset_index(drop=True)
+        self.X = X_stack
+        self.y = y_stack
+        self.stacking = True
+        self.randseed=random_state
 
-        from sklearn.model_selection import RepeatedKFold
-        cv = RepeatedKFold(n_splits=5, n_repeats=2, random_state=random_state)
-        fit_params = self.weight_params(est, y_stack_shuf, sample_weight=sample_weight)
+        # fit_params = self.weight_params(model, y_stack, sample_weight=sample_weight)
+        best_model, _ = self.custom_rand_search(model, stack_params, n_iters=n_iter)
 
-        if scoring is None and self.model_obj=='reg': scoring = self.scorer('sera')
-        if scoring is None and self.model_obj=='quantile': scoring = self.scorer('quantile', **{'alpha': alpha})
-        print('Users Scorer:', scoring)
-
-        best_model = self.random_search(est, X_stack, y_stack, stack_params, cv=cv, 
-                                        n_iter=n_iter, scoring=scoring, fit_params=fit_params)
-
-        X_stack_shuf = X_stack.sample(frac=1, random_state=random_state*17)
-        orig_index = X_stack_shuf.index
-        X_stack_shuf = X_stack_shuf.reset_index(drop=True)
-        y_stack_shuf = y_stack.sample(frac=1, random_state=random_state*17).reset_index(drop=True)
-
-        fit_params = self.weight_params(est, y_stack_shuf, sample_weight=sample_weight)
-        wts, _ = self.metrics_weights(y_stack_shuf.values, y_stack_shuf.values, sample_weight)
+        # fit_params = self.weight_params(est, y_stack_shuf, sample_weight=sample_weight)
+        wts, _ = self.metrics_weights(self.y.values, self.y.values, sample_weight)
 
         if run_adp:
             # print the OOS scores for ADP and model stack
             print('ADP Score\n--------')
             adp_col = [c for c in X_stack.columns if 'adp' in c]
+            self.X = X_stack[adp_col]
             adp_pipe = self.model_pipe([self.piece('lr')])
-            adp_preds = self.cv_predict(adp_pipe, X_stack_shuf[adp_col], y_stack_shuf, cv=5, sample_weight=sample_weight)
-            adp_score = r2_score(y_stack_shuf, adp_preds, sample_weight=wts)
-            print(f'ADP R2: {round(adp_score,3)}')
+            adp_preds = self.cv_predict(adp_pipe, cv=5, sample_weight=sample_weight)
+            adp_score = self.test_scores(self.y_vals, adp_preds, sample_weight=wts, label='ADP')[0]
         
         else:
             adp_score = 0
@@ -778,15 +868,17 @@ class SciKitModel(PipeSetup):
 
         print('\nStack Score\n--------')
         
+        self.randseed=random_state*17
+        self.X = X_stack
+        full_preds = self.cv_predict(best_model, cv=5, sample_weight=sample_weight)
+        stack_score = self.test_scores(self.y_vals, full_preds, sample_weight=wts)[0]
 
-        full_preds = self.cv_predict(best_model, X_stack_shuf, y_stack_shuf, cv=5, sample_weight=sample_weight)
-        stack_score = self.test_scores(y_stack_shuf, full_preds, sample_weight=wts)[0]
-        full_preds = pd.Series(full_preds, index=orig_index).sort_index().values
-        y_orig = pd.Series(y_stack_shuf.values, index=orig_index).sort_index().values
+        full_preds = pd.Series(full_preds, index=self.test_idx).sort_index().values
+        y_out = pd.Series(self.y_vals, index=self.test_idx).sort_index().values
 
         if print_coef:
-            try: imp_cols = X_stack_shuf.columns[best_model['k_best'].get_support()]
-            except: imp_cols = X_stack_shuf.columns
+            try: imp_cols = self.X.columns[best_model['k_best'].get_support()]
+            except: imp_cols = self.X.columns
             self.print_coef(best_model, imp_cols)
 
         scores = {'stack_score': round(stack_score, 3),
@@ -794,7 +886,7 @@ class SciKitModel(PipeSetup):
 
         predictions = {'adp': adp_preds,
                        'stack_pred': full_preds,
-                       'y': y_orig}
+                       'y': y_out}
 
         return best_model, scores, predictions
 
