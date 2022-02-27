@@ -103,13 +103,13 @@ class SciKitModel(PipeSetup):
         param_options = {
 
             # feature params
-            'random_sample': {'frac': self.param_range('real', 0.1, 0.8, 0.05, br, 'frac'),
+            'random_sample': {'frac': self.param_range('real', 0.2, 0.55, 0.05, br, 'frac'),
                               'seed': self.param_range('int', 0, 10000, 1000, br, 'seed')},
-            'agglomeration': {'n_clusters': self.param_range('int', 2, 20, 3, br, 'n_clusters')},
+            'agglomeration': {'n_clusters': self.param_range('int', 3, 33, 3, br, 'n_clusters')},
             'pca': {'n_components': self.param_range('int', 2, 30, 4, br, 'n_components')},
-            'k_best': {'k': self.param_range('int', 5, 150, 5, br, 'k')},
-            'select_perc': {'percentile': self.param_range('int', 5, 35, 5, br, 'select_perc')},
-            'k_best_c': {'k': self.param_range('int', 5, 40, 4, br, 'k_best_c')},
+            'k_best': {'k': self.param_range('int', 25, 200, 5, br, 'k')},
+            'select_perc': {'percentile': self.param_range('int', 20, 55, 5, br, 'select_perc')},
+            'k_best_c': {'k': self.param_range('int', 25, 200, 5, br, 'k_best_c')},
             'select_perc_c': {'percentile': self.param_range('int', 20, 80, 4, br, 'select_perc_c')},
             'select_from_model': {'estimator': [Ridge(alpha=0.1), Ridge(alpha=1), Ridge(alpha=10),
                                                 Lasso(alpha=0.1), Lasso(alpha=1), Lasso(alpha=10),
@@ -120,16 +120,16 @@ class SciKitModel(PipeSetup):
 
             # model params
             'ridge': {
-                        'alpha': self.param_range('int', 1, 1000, 1, br, 'alpha')
+                        'alpha': self.param_range('int', 1, 10000, 10, br, 'alpha')
                      },
 
             'lasso': {
-                        'alpha': self.param_range('real', 0.01, 25, 0.1, br, 'alpha')
+                        'alpha': self.param_range('real', 0.001, 10, 0.005, br, 'alpha')
                     },
 
             'enet': {
-                    'alpha': self.param_range('real', 0.01, 50, 0.1, br, 'alpha'),
-                    'l1_ratio': self.param_range('real', 0.05, 0.95, 0.05, br, 'l1_ratio')
+                    'alpha': self.param_range('real', 0.01, 10, 0.1, br, 'alpha'),
+                    'l1_ratio': self.param_range('real', 0.02, 0.98, 0.05, br, 'l1_ratio')
                     },
 
             'rf': {
@@ -140,12 +140,15 @@ class SciKitModel(PipeSetup):
                     },
 
             'lgbm': {
-                     'n_estimators': self.param_range('int', 25, 200, 25, br, 'n_estimators'),
-                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
-                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br, 'colsample_bytree'),
+                     'n_estimators': self.param_range('int', 20, 180, 20, br, 'n_estimators'),
+                     'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
+                     'colsample_bytree': self.param_range('real', 0.1, 0.9, 0.2, br, 'colsample_bytree'),
                      'subsample':  self.param_range('real', 0.2, 1, 0.2, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 0, 500, 100, br, 'reg_lambda'),
+                     'reg_lambda': self.param_range('int', 50, 1000, 50, br, 'reg_lambda'),
                      'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
+                     'learning_rate': self.param_range('real', 0.001, 0.1, 0.002, br, 'learning_rate'),
+                     'min_data_in_leaf': self.param_range('real', 1, 25, 2, br, 'min_data_in_leaf'),
+                     'reg_alpha': self.param_range('int', 0, 50, 5, br,  'reg_alpha')
                      },
 
              'lgbm_q': {
@@ -158,19 +161,22 @@ class SciKitModel(PipeSetup):
                         },
 
             'xgb': {
-                    'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
+                    'n_estimators': self.param_range('int', 20, 200, 20, br, 'n_estimators'),
                      'max_depth': self.param_range('int', 2, 20, 2, br, 'max_depth'),
-                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.2, br,  'colsample_bytree'),
-                     'subsample':  self.param_range('real', 0.2, 1, 0.2, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br,  'reg_lambda')
+                     'colsample_bytree': self.param_range('real', 0.2, 0.9, 0.1, br,  'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
+                     'reg_lambda': self.param_range('int', 100, 1000, 100, br,  'reg_lambda'),
+                     'reg_alpha': self.param_range('int', 0, 50, 5, br,  'reg_alpha'),
+                     'learning_rate': self.param_range('real', 0.01, 0.5, 0.01, br, 'learning_rate'),
                      },
 
             'gbm': {
-                    'n_estimators': self.param_range('int', 10, 100, 10, br, 'n_estimators'),
-                    'max_depth': self.param_range('int', 2, 30, 3, br,'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 4, 15, 2, br, 'min_samples_leaf'),
+                    'n_estimators': self.param_range('int', 10, 80, 5, br, 'n_estimators'),
+                    'max_depth': self.param_range('int', 2, 20, 2, br,'max_depth'),
+                    'min_samples_leaf': self.param_range('int', 5, 20, 2, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
-                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')
+                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample'),
+                    'learning_rate': self.param_range('real', 0.001, 0.1, 0.002, br, 'learning_rate'),
                     },
 
             'gbm_q': {
@@ -193,33 +199,34 @@ class SciKitModel(PipeSetup):
 
             # classification params
             'lr_c': {
-                    'C': self.param_range('real', 0.01, 25, 0.1, br, 'C'),
-                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.1)]
+                    'C': self.param_range('real', 0.01, 2, 0.1, br, 'C'),
+                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.1)]
                     },
 
             'rf_c': {
                     'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 1, 10, 1, br, 'min_samples_leaf'),
+                    'min_samples_leaf': self.param_range('int', 1, 20, 2, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features'),
-                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]
+                    'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.1)]
                     },
                     
             'lgbm_c': {
-                    'n_estimators': self.param_range('int', 25, 200, 25, br, 'n_estimators'),
+                    'n_estimators': self.param_range('int', 10, 150, 10, br, 'n_estimators'),
                      'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
                      'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 0, 300, 100, br, 'reg_lambda'),
+                     'reg_lambda': self.param_range('int', 0, 100, 00, br, 'reg_lambda'),
                      'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
-                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)],
+                     'learning_rate': self.param_range('real', 0.0001, 0.1, 0.001, br, 'learning_rate'),
+                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.1)],
                      },
 
             'xgb_c': {
-                     'n_estimators': self.param_range('int', 50, 250, 30, br, 'n_estimators'),
+                     'n_estimators': self.param_range('int', 30, 200, 10, br, 'n_estimators'),
                      'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
-                     'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
+                     'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
                      'reg_lambda': self.param_range('int', 0, 1000, 100, br, 'reg_lambda'),
                      'scale_pos_weight': self.param_range('real', 1, 10, 1, br, 'scale_pos_weight')
                      },
@@ -846,6 +853,7 @@ class SciKitModel(PipeSetup):
         self.y = y_stack
         self.stacking = True
         self.randseed=random_state
+        self.alpha = alpha
 
         # fit_params = self.weight_params(model, y_stack, sample_weight=sample_weight)
         best_model, _ = self.custom_rand_search(model, stack_params, n_iters=n_iter)

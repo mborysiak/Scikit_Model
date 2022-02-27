@@ -1,7 +1,5 @@
 from skmodel.data_setup import DataSetup
-from sklearn.pipeline import FeatureUnion#,Pipeline
-from imblearn.pipeline import Pipeline
-from imblearn.over_sampling import SMOTE
+from sklearn.pipeline import FeatureUnion, Pipeline
 import numpy as np
 
 # feature selection
@@ -234,7 +232,7 @@ class PipeSetup(DataSetup):
                 'impute': SimpleImputer(),
                 'std_scale': StandardScaler(),
                 'min_max_scale': MinMaxScaler(),
-                'smote': SMOTE(),
+              #  'smote': SMOTE(),
                 'y_perc': PercentileCut(),
 
                 #feature selection
