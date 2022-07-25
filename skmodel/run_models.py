@@ -103,13 +103,13 @@ class SciKitModel(PipeSetup):
         param_options = {
 
             # feature params
-            'random_sample': {'frac': self.param_range('real', 0.2, 0.55, 0.05, br, 'frac'),
+            'random_sample': {'frac': self.param_range('real', 0.1, 0.27, 0.02, br, 'frac'),
                               'seed': self.param_range('int', 0, 10000, 1000, br, 'seed')},
-            'agglomeration': {'n_clusters': self.param_range('int', 3, 33, 3, br, 'n_clusters')},
+            'agglomeration': {'n_clusters': self.param_range('int', 2, 20, 2, br, 'n_clusters')},
             'pca': {'n_components': self.param_range('int', 2, 30, 4, br, 'n_components')},
-            'k_best': {'k': self.param_range('int', 25, 200, 5, br, 'k')},
-            'select_perc': {'percentile': self.param_range('int', 20, 55, 5, br, 'select_perc')},
-            'k_best_c': {'k': self.param_range('int', 25, 200, 5, br, 'k_best_c')},
+            'k_best': {'k': self.param_range('int', 20, 150, 5, br, 'k')},
+            'select_perc': {'percentile': self.param_range('int', 20, 55, 3, br, 'select_perc')},
+            'k_best_c': {'k': self.param_range('int', 20, 150, 5, br, 'k_best_c')},
             'select_perc_c': {'percentile': self.param_range('int', 20, 80, 4, br, 'select_perc_c')},
             'select_from_model': {'estimator': [Ridge(alpha=0.1), Ridge(alpha=1), Ridge(alpha=10),
                                                 Lasso(alpha=0.1), Lasso(alpha=1), Lasso(alpha=10),
@@ -216,7 +216,7 @@ class SciKitModel(PipeSetup):
                      'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
                      'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 0, 100, 00, br, 'reg_lambda'),
+                     'reg_lambda': self.param_range('int', 0, 100, 10, br, 'reg_lambda'),
                      'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
                      'learning_rate': self.param_range('real', 0.0001, 0.1, 0.001, br, 'learning_rate'),
                      'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.1)],
@@ -389,7 +389,7 @@ class SciKitModel(PipeSetup):
         if self.model_obj=='reg':
             r2 = r2_score(y, y_pred)
             sera = self.sera_loss(y, y_pred)
-            score = 100*(3*sera - r2)
+            score = 100*(10*sera - r2)
 
         elif self.model_obj=='class':
             matt = matthews_corrcoef(np.where(np.array(y)>=0.5, 1, 0), np.where(np.array(y_pred)>=0.5, 1, 0))
@@ -400,8 +400,6 @@ class SciKitModel(PipeSetup):
             score = mean_pinball_loss(y, y_pred, alpha=self.alpha)
 
         return score
-
-        
 
 
     def grid_search(self, pipe_to_fit, X, y, params, cv=5, scoring='neg_mean_squared_error'):
@@ -463,7 +461,7 @@ class SciKitModel(PipeSetup):
         r2 = r2_score(y_val, val_predictions)
         sera = self.sera_loss(y_val, val_predictions)
 
-        score = 100*(3*sera - r2)
+        score = 100*(10*sera - r2)
 
         return {'loss': score, 'status': STATUS_OK}
 
@@ -738,10 +736,10 @@ class SciKitModel(PipeSetup):
 
             elif bayes_rand == 'custom_rand':
                 best_model, ps = self.custom_rand_search(model, params, n_iters=n_iter)
+                param_scores = pd.concat([param_scores, ps], axis=0)
 
             best_models.append(best_model)
-            param_scores = pd.concat([param_scores, ps], axis=0)
-
+            
             val_pred, hold_pred = self.cv_predict_time_holdout(best_model, sample_weight)
 
             val_wts, hold_wts = self.metrics_weights(self.get_y_val(), y_hold, sample_weight)
