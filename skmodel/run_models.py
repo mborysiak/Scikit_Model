@@ -2,6 +2,7 @@ from skmodel.data_setup import DataSetup
 from skmodel.pipe_setup import PipeSetup
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.pipeline import Pipeline
+from sklearn.base import clone
 
 import pandas as pd
 import numpy as np
@@ -46,18 +47,8 @@ class SciKitModel(PipeSetup):
         self.proba = False
         self.stacking = False
         self.alpha = 0.5
-        np.random.seed(set_seed)
-
-    
-    import contextlib
-    @contextlib.contextmanager
-    def temp_seed(self, seed):
-        state = np.random.get_state()
-        np.random.seed(seed)
-        try:
-            yield
-        finally:
-            np.random.set_state(state)
+        self.randseed=1234
+        np.random.seed(self.randseed)
 
 
     def param_range(self, var_type, low, high, spacing, bayes_rand, label):
@@ -499,9 +490,8 @@ class SciKitModel(PipeSetup):
         from joblib import Parallel, delayed
         self.cur_model = model
 
-        with self.temp_seed(self.randseed):
-            param_list = [self.param_select(params) for _ in range(n_iters)]
-
+        param_list = [self.param_select(params) for _ in range(n_iters)]
+        
         scores = Parallel(n_jobs=-1, verbose=0)(delayed(self.rand_objective)(p) for p in param_list)
 
         param_output = pd.DataFrame(param_list, index=range(n_iters))
@@ -727,6 +717,7 @@ class SciKitModel(PipeSetup):
             self.proba=proba
             self.randseed = random_seed * i_seed
             self.alpha
+            np.random.seed(self.randseed)
 
             if bayes_rand == 'rand':
                 best_model = self.random_search(model, X_train, y_train, params, cv=cv_time_train, 
@@ -738,8 +729,7 @@ class SciKitModel(PipeSetup):
                 best_model, ps = self.custom_rand_search(model, params, n_iters=n_iter)
                 param_scores = pd.concat([param_scores, ps], axis=0)
 
-            best_models.append(best_model)
-            
+            best_models.append(clone(best_model))
             val_pred, hold_pred = self.cv_predict_time_holdout(best_model, sample_weight)
 
             val_wts, hold_wts = self.metrics_weights(self.get_y_val(), y_hold, sample_weight)
@@ -773,7 +763,6 @@ class SciKitModel(PipeSetup):
             }
 
         gc.collect()
-
         return best_models, oof_data, param_scores
 
           
