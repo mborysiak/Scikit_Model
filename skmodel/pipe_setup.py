@@ -123,7 +123,9 @@ class RandomSample(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
-        return X.sample(frac=self.frac, axis=1, random_state=self.seed)
+        X_s = X.sample(frac=self.frac, axis=1, random_state=self.seed)
+        self.columns = X_s.columns
+        return X_s
 
 
 class SelectAtMostKBest(SelectKBest):

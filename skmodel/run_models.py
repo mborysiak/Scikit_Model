@@ -61,6 +61,7 @@ class SciKitModel(PipeSetup):
             if var_type=='int': return range(low, high, spacing)
             if var_type=='real': return np.arange(low, high, spacing)
             if var_type=='cat': return low
+            if var_type=='log': return 10**np.arange(low, high, spacing)
 
 
     def default_params(self, pipe, bayes_rand='rand'):
@@ -94,14 +95,14 @@ class SciKitModel(PipeSetup):
         param_options = {
 
             # feature params
-            'random_sample': {'frac': self.param_range('real', 0.1, 0.27, 0.02, br, 'frac'),
+            'random_sample': {'frac': self.param_range('real', 0.4, 0.85, 0.02, br, 'frac'),
                               'seed': self.param_range('int', 0, 10000, 1000, br, 'seed')},
             'agglomeration': {'n_clusters': self.param_range('int', 2, 20, 2, br, 'n_clusters')},
-            'pca': {'n_components': self.param_range('int', 2, 30, 4, br, 'n_components')},
-            'k_best': {'k': self.param_range('int', 20, 150, 5, br, 'k')},
-            'select_perc': {'percentile': self.param_range('int', 20, 55, 3, br, 'select_perc')},
-            'k_best_c': {'k': self.param_range('int', 20, 150, 5, br, 'k_best_c')},
-            'select_perc_c': {'percentile': self.param_range('int', 20, 80, 4, br, 'select_perc_c')},
+            'pca': {'n_components': self.param_range('int', 2, 15, 2, br, 'n_components')},
+            'k_best': {'k': self.param_range('int', 15, 125, 5, br, 'k')},
+            'select_perc': {'percentile': self.param_range('int', 20, 80, 5, br, 'select_perc')},
+            'k_best_c': {'k': self.param_range('int', 15, 125, 5, br, 'k_best_c')},
+            'select_perc_c': {'percentile': self.param_range('int', 5, 40, 5, br, 'select_perc_c')},
             'select_from_model': {'estimator': [Ridge(alpha=0.1), Ridge(alpha=1), Ridge(alpha=10),
                                                 Lasso(alpha=0.1), Lasso(alpha=1), Lasso(alpha=10),
                                                 RandomForestRegressor(max_depth=5), 
@@ -111,16 +112,16 @@ class SciKitModel(PipeSetup):
 
             # model params
             'ridge': {
-                        'alpha': self.param_range('int', 1, 10000, 10, br, 'alpha')
+                        'alpha': self.param_range('log', -1, 4, 0.1, br, 'alpha')
                      },
 
             'lasso': {
-                        'alpha': self.param_range('real', 0.001, 10, 0.005, br, 'alpha')
+                        'alpha': self.param_range('log', -4, 1, 0.1, br, 'alpha')
                     },
 
             'enet': {
-                    'alpha': self.param_range('real', 0.01, 10, 0.1, br, 'alpha'),
-                    'l1_ratio': self.param_range('real', 0.02, 0.98, 0.05, br, 'l1_ratio')
+                    'alpha': self.param_range('log', -4, 1, 0.1, br, 'alpha'),
+                    'l1_ratio': self.param_range('real', 0.1, 0.9, 0.05, br, 'l1_ratio')
                     },
 
             'rf': {
@@ -135,10 +136,10 @@ class SciKitModel(PipeSetup):
                      'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
                      'colsample_bytree': self.param_range('real', 0.1, 0.9, 0.2, br, 'colsample_bytree'),
                      'subsample':  self.param_range('real', 0.2, 1, 0.2, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 50, 1000, 50, br, 'reg_lambda'),
+                     'reg_lambda': self.param_range('log', 0, 3, 0.1, br, 'reg_lambda'),
                      'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
-                     'learning_rate': self.param_range('real', 0.001, 0.1, 0.002, br, 'learning_rate'),
-                     'min_data_in_leaf': self.param_range('real', 1, 25, 2, br, 'min_data_in_leaf'),
+                     'learning_rate': self.param_range('log', -4, -1, 0.1, br, 'learning_rate'),
+                     'min_child_samples': self.param_range('real', 1, 25, 2, br, 'min_child_samples'),
                      'reg_alpha': self.param_range('int', 0, 50, 5, br,  'reg_alpha')
                      },
 
@@ -156,7 +157,7 @@ class SciKitModel(PipeSetup):
                      'max_depth': self.param_range('int', 2, 20, 2, br, 'max_depth'),
                      'colsample_bytree': self.param_range('real', 0.2, 0.9, 0.1, br,  'colsample_bytree'),
                      'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 100, 1000, 100, br,  'reg_lambda'),
+                     'reg_lambda': self.param_range('log', 1, 3, 0.1, br,  'reg_lambda'),
                      'reg_alpha': self.param_range('int', 0, 50, 5, br,  'reg_alpha'),
                      'learning_rate': self.param_range('real', 0.01, 0.5, 0.01, br, 'learning_rate'),
                      },
@@ -167,7 +168,7 @@ class SciKitModel(PipeSetup):
                     'min_samples_leaf': self.param_range('int', 5, 20, 2, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
                     'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample'),
-                    'learning_rate': self.param_range('real', 0.001, 0.1, 0.002, br, 'learning_rate'),
+                    'learning_rate': self.param_range('log', -4, -1, 0.1, br, 'learning_rate'),
                     },
 
             'gbm_q': {
@@ -185,12 +186,12 @@ class SciKitModel(PipeSetup):
                     },
 
             'svr': {
-                    'C': self.param_range('int', 1, 100, 1, br, 'C')
+                    'C': self.param_range('log', -1, 2, 0.1, br, 'C')
                     },
 
             # classification params
             'lr_c': {
-                    'C': self.param_range('real', 0.01, 2, 0.1, br, 'C'),
+                    'C': self.param_range('log', -2, 1, 0.1, br, 'C'),
                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.1)]
                     },
 
@@ -209,7 +210,7 @@ class SciKitModel(PipeSetup):
                      'subsample':  self.param_range('real', 0.2, 1, 0.25, br, 'subsample'),
                      'reg_lambda': self.param_range('int', 0, 100, 10, br, 'reg_lambda'),
                      'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
-                     'learning_rate': self.param_range('real', 0.0001, 0.1, 0.001, br, 'learning_rate'),
+                     'learning_rate': self.param_range('log', -4, -1, 0.1, br, 'learning_rate'),
                      'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.1)],
                      },
 
@@ -218,7 +219,7 @@ class SciKitModel(PipeSetup):
                      'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
                      'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
-                     'reg_lambda': self.param_range('int', 0, 1000, 100, br, 'reg_lambda'),
+                     'reg_lambda': self.param_range('log', 0, 3, 0.1, br, 'reg_lambda'),
                      'scale_pos_weight': self.param_range('real', 1, 10, 1, br, 'scale_pos_weight')
                      },
 
@@ -237,7 +238,7 @@ class SciKitModel(PipeSetup):
                     },
 
             'svc': {
-                    'C': self.param_range('int', 1, 100, 1, br, 'C'),
+                    'C': self.param_range('log', -1, 2, 0.1, br, 'C'),
                     'class_weight': [{0: i, 1: 1} for i in np.arange(0.05, 1, 0.2)]
                     },
         }
@@ -468,6 +469,7 @@ class SciKitModel(PipeSetup):
     def rand_objective(self, params):
 
         self.cur_model.set_params(**params) 
+        # self.cur_model.steps[-1][1].random_state = self.randseed
 
         try:
             if self.stacking:
@@ -500,7 +502,9 @@ class SciKitModel(PipeSetup):
         best_params = param_list[np.argmin(scores)]
         model.set_params(**best_params)
         
-        try: model.steps[-1][1].n_jobs=-1
+        try: 
+            model.steps[-1][1].n_jobs=-1
+            # model.steps[-1][1].random_state = self.randseed
         except: pass
 
         return model, param_output
@@ -776,7 +780,7 @@ class SciKitModel(PipeSetup):
             for v, m in zip([f'{label} MSE:', f'{label} R2:', f'{label} Sera:'], [mse, r2, sera]):
                 print(v, np.round(m, 3))
 
-            return r2, mse
+            return r2, 100*(10*sera - r2)
 
         elif self.model_obj == 'class':
             
@@ -807,7 +811,18 @@ class SciKitModel(PipeSetup):
             return self.data.loc[:, cols]
 
     
-    def print_coef(self, model, cols):
+    def print_coef(self, model):
+        
+        cols = self.X.columns
+
+        if len([i[0] for i in model.get_params()['steps'] if i[0]=='random_sample']) > 0:
+            cols = model['random_sample'].columns
+            X_cur = self.X[cols].copy()
+        else:
+            X_cur = self.X.copy()
+
+        if len([i[0] for i in model.get_params()['steps'] if i[0]=='k_best']) > 0:
+            cols = X_cur.columns[model['k_best'].get_support()] 
 
         # get out the coefficients or feature importances from the model
         try: feat_imp = pd.Series(model[-1].coef_, index=cols)
@@ -855,7 +870,7 @@ class SciKitModel(PipeSetup):
             self.X = X_stack[adp_col]
             adp_pipe = self.model_pipe([self.piece('lr')])
             adp_preds = self.cv_predict(adp_pipe, cv=5, sample_weight=sample_weight)
-            adp_score = self.test_scores(self.y_vals, adp_preds, sample_weight=wts, label='ADP')[0]
+            adp_score = self.test_scores(self.y_vals, adp_preds, sample_weight=wts, label='ADP')[1]
         
         else:
             adp_score = 0
@@ -866,15 +881,13 @@ class SciKitModel(PipeSetup):
         self.randseed=random_state*17
         self.X = X_stack
         full_preds = self.cv_predict(best_model, cv=5, sample_weight=sample_weight)
-        stack_score = self.test_scores(self.y_vals, full_preds, sample_weight=wts)[0]
+        stack_score = self.test_scores(self.y_vals, full_preds, sample_weight=wts)[1]
 
         full_preds = pd.Series(full_preds, index=self.test_idx).sort_index().values
         y_out = pd.Series(self.y_vals, index=self.test_idx).sort_index().values
 
         if print_coef:
-            try: imp_cols = self.X.columns[best_model['k_best'].get_support()]
-            except: imp_cols = self.X.columns
-            self.print_coef(best_model, imp_cols)
+            self.print_coef(best_model)
 
         scores = {'stack_score': round(stack_score, 3),
                   'adp_score': round(adp_score, 3)}
