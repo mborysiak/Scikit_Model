@@ -12,10 +12,11 @@ from sklearn.feature_selection import SelectFromModel, SelectKBest,SelectPercent
 from sklearn.cluster import FeatureAgglomeration
 
 # import all various models
-from sklearn.linear_model import Ridge, Lasso, LinearRegression, LogisticRegression, BayesianRidge, ElasticNet
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
+from sklearn.linear_model import Ridge, Lasso, LinearRegression, LogisticRegression, BayesianRidge, ElasticNet, RidgeClassifier
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, AdaBoostRegressor, AdaBoostClassifier
+from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.ensemble import VotingRegressor, VotingClassifier, StackingRegressor, StackingClassifier
+from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from xgboost import XGBRegressor, XGBClassifier
 from lightgbm import LGBMRegressor, LGBMClassifier
 from ngboost import NGBRegressor
@@ -136,6 +137,21 @@ class SelectAtMostKBest(SelectKBest):
             self.k = "all"
 
 
+class PCAAtMost(PCA):
+
+    def _check_params(self, X, y):
+        if not (0 <= self.n_components <= X.shape[1]):
+            # set k to "all" (skip feature selection), if less than k features are available
+            self.n_components = X.shape[1] - 2
+
+class AgglomerationAtMost(FeatureAgglomeration):
+
+    def _check_params(self, X, y):
+        if not (0 <= self.n_clusters <= X.shape[1]):
+            # set k to "all" (skip feature selection), if less than k features are available
+            self.n_clusters = X.shape[1] - 2
+
+
 class PipeSetup(DataSetup):
 
     def __init__(self, data, model_obj):
@@ -249,8 +265,8 @@ class PipeSetup(DataSetup):
                 'feature_switcher': FeatureExtractionSwitcher(),
 
                 # feature transformation
-                'pca': PCA(),
-                'agglomeration': FeatureAgglomeration(),
+                'pca': PCAAtMost(),
+                'agglomeration': AgglomerationAtMost(),
 
                 # regression algorithms
                 'lr': LinearRegression(),
@@ -265,8 +281,11 @@ class PipeSetup(DataSetup):
                 'svr': LinearSVR(),
                 'ngb': NGBRegressor(),
                 'bridge': BayesianRidge(),
+                'ada': AdaBoostRegressor(),
+                'tree': DecisionTreeRegressor(),
 
                 # quantile regression
+                # 'gbm_q': HistGradientBoostingRegressor(loss='quantile'),
                 'gbm_q': GradientBoostingRegressor(loss='quantile'),
                 'lgbm_q': LGBMRegressor(objective='quantile', verbose=0, n_jobs=1),
 
@@ -274,10 +293,13 @@ class PipeSetup(DataSetup):
                 'lr_c': LogisticRegression(),
                 'rf_c': RandomForestClassifier(n_jobs=1),
                 'xgb_c': XGBClassifier(n_jobs=1),
-                'lgbm_c': LGBMClassifier(n_jobs=1, verbose=0),
+                'lgbm_c': LGBMClassifier(n_jobs=1, verbose=-1),
                 'knn_c': KNeighborsClassifier(n_jobs=1),
                 'gbm_c': GradientBoostingClassifier(),
-                'svc': LinearSVC()
+                'svc': LinearSVC(),
+                'ada_c': AdaBoostClassifier(),
+                'ridge_c': RidgeClassifier(),
+                'tree_c': DecisionTreeClassifier()
             }
 
         piece = (label, piece_options[label])
