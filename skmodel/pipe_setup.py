@@ -13,9 +13,10 @@ from sklearn.feature_selection import SelectFromModel, SelectKBest,SelectPercent
 from sklearn.cluster import FeatureAgglomeration
 
 # import all various models
-from sklearn.linear_model import Ridge, Lasso, LinearRegression, LogisticRegression, BayesianRidge, ElasticNet, RidgeClassifier
+from sklearn.linear_model import Ridge, Lasso, LinearRegression, LogisticRegression, BayesianRidge, ElasticNet
+from sklearn.linear_model import QuantileRegressor, RidgeClassifier, HuberRegressor
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, AdaBoostRegressor, AdaBoostClassifier
-from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier, HistGradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier, HistGradientBoostingRegressor, HistGradientBoostingClassifier
 from sklearn.ensemble import VotingRegressor, VotingClassifier, StackingRegressor, StackingClassifier
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from xgboost import XGBRegressor, XGBClassifier
@@ -279,16 +280,19 @@ class PipeSetup(DataSetup):
                 'lgbm': LGBMRegressor(n_jobs=1, verbose=-1),
                 'knn': KNeighborsRegressor(n_jobs=1),
                 'gbm': GradientBoostingRegressor(),
+                'gbmh': HistGradientBoostingRegressor(),
                 'svr': LinearSVR(),
                 'ngb': NGBRegressor(),
                 'bridge': BayesianRidge(),
                 'ada': AdaBoostRegressor(),
                 'tree': DecisionTreeRegressor(),
+                'huber': HuberRegressor(),
 
                 # quantile regression
                 # 'gbm_q': HistGradientBoostingRegressor(loss='quantile'),
                 'gbm_q': GradientBoostingRegressor(loss='quantile'),
-                'lgbm_q': LGBMRegressor(objective='quantile', verbose=0, n_jobs=1),
+                'lgbm_q': LGBMRegressor(objective='quantile', verbose=-1, n_jobs=1),
+                'qr_q': QuantileRegressor(),
 
                 # classification algorithms
                 'lr_c': LogisticRegression(),
@@ -297,6 +301,7 @@ class PipeSetup(DataSetup):
                 'lgbm_c': LGBMClassifier(n_jobs=1, verbose=-1),
                 'knn_c': KNeighborsClassifier(n_jobs=1),
                 'gbm_c': GradientBoostingClassifier(),
+                'gbmh_c': HistGradientBoostingClassifier(),
                 'svc': LinearSVC(),
                 'ada_c': AdaBoostClassifier(),
                 'ridge_c': RidgeClassifier(),
