@@ -52,6 +52,7 @@ class SciKitModel(PipeSetup):
         self.randseed=set_seed
         self.num_k_folds = 1
         np.random.seed(self.randseed)
+        self.calibrate = False
 
         self.r2_wt = kwargs.get('r2_wt', 0)
         self.sera_wt = kwargs.get('sera_wt', 1)
@@ -155,12 +156,19 @@ class SciKitModel(PipeSetup):
                     },
 
             'rf_c': {
-                    'n_estimators': self.param_range('int', 50, 250, 25, br, 'n_estimators'),
+                    'n_estimators': self.param_range('int', 50, 250, 20, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
                     'min_samples_leaf': self.param_range('int', 1, 20, 2, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features'),
                     # 'class_weight': [{0: i, 1: 1} for i in np.arange(0.01, 0.8, 0.05)],
                     # 'criterion': self.param_range('cat', ['gini', 'log_loss'], None, None, br, 'criterion'),
+                    },
+
+            'rf_q': {
+                    'n_estimators': self.param_range('int', 50, 200, 10, br, 'n_estimators'),
+                    'max_depth': self.param_range('int', 2, 20, 2, br, 'max_depth'),
+                    'min_samples_leaf': self.param_range('int', 5, 25, 1, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.1, 1, 0.1, br, 'max_features')
                     },
 
             'lgbm': {
@@ -252,6 +260,12 @@ class SciKitModel(PipeSetup):
             'knn_c': {
                     'n_neighbors':  self.param_range('int',1, 30, 1, br, 'n_neighbors'),
                     'weights': self.param_range('cat',['distance', 'uniform'], None, None, br, 'weights'),
+                    'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')
+                    },
+
+            'knn_q': {
+                    'n_neighbors':  self.param_range('int',10, 60, 1, br, 'n_neighbors'),
+                    'weights': self.param_range('cat', ['distance', 'uniform'], None, None, br, 'weights'),
                     'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')
                     },
 
@@ -538,7 +552,7 @@ class SciKitModel(PipeSetup):
         self.y_vals = []
         self.test_idx = []
 
-        if model_obj=='class': 
+        if self.model_obj=='class': 
             kf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=self.randseed)
             ksplt = 'kf.split(X,y)'
         else: 
@@ -910,119 +924,119 @@ class SciKitModel(PipeSetup):
 
 # %%
 
-from sklearn.datasets import make_regression, make_classification
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
+# from sklearn.datasets import make_regression, make_classification
+# from sklearn.model_selection import train_test_split
+# import matplotlib.pyplot as plt
 
-def get_dataset(model_obj, rs):
-    if model_obj=='reg':
-        X, y = make_regression(n_samples=1200, n_features=60, n_informative=20, n_targets=1, bias=2, effective_rank=5, tail_strength=0.5, noise=5, random_state=rs)
-    elif model_obj=='class':
-        X, y = make_classification(n_samples=1000, n_features=60, n_informative=15, weights=(0.8,0.2), 
-                                  n_redundant=3, flip_y=0.1, class_sep = 0.5, n_clusters_per_class=2, random_state=rs)
+# def get_dataset(model_obj, rs):
+#     if model_obj=='reg':
+#         X, y = make_regression(n_samples=1200, n_features=60, n_informative=20, n_targets=1, bias=2, effective_rank=5, tail_strength=0.5, noise=5, random_state=rs)
+#     elif model_obj=='class':
+#         X, y = make_classification(n_samples=1000, n_features=60, n_informative=15, weights=(0.8,0.2), 
+#                                   n_redundant=3, flip_y=0.1, class_sep = 0.5, n_clusters_per_class=2, random_state=rs)
     
-    if model_obj=='class': stratify=y
-    else: stratify=None
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=rs, shuffle=True, stratify=stratify)
-    X_train = pd.DataFrame(X_train); y_train = pd.Series(y_train)
-    X_test = pd.DataFrame(X_test); y_test = pd.Series(y_test)
+#     if model_obj=='class': stratify=y
+#     else: stratify=None
+#     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=rs, shuffle=True, stratify=stratify)
+#     X_train = pd.DataFrame(X_train); y_train = pd.Series(y_train)
+#     X_test = pd.DataFrame(X_test); y_test = pd.Series(y_test)
 
-    skm = SciKitModel(pd.concat([X_train, y_train], axis=1), model_obj=model_obj, r2_wt=r2_wt, sera_wt=sera_wt, matt_wt=matt_wt, brier_wt=brier_wt)
+#     skm = SciKitModel(pd.concat([X_train, y_train], axis=1), model_obj=model_obj, r2_wt=r2_wt, sera_wt=sera_wt, matt_wt=matt_wt, brier_wt=brier_wt)
 
-    return skm, X_train, X_test, y_train, y_test
+#     return skm, X_train, X_test, y_train, y_test
 
 
-def get_models(model, skm, X, y, use_rs):
+# def get_models(model, skm, X, y, use_rs):
 
-    if skm.model_obj=='reg': kb = 'k_best'
-    elif skm.model_obj=='class': kb = 'k_best_c'
-    if use_rs:
-        pipe = skm.model_pipe([
-                                    skm.piece('random_sample'),
-                                    skm.piece('std_scale'), 
-                                    skm.piece(kb),
-                                    skm.piece(model)
-                            ])
-    else:
-        pipe = skm.model_pipe([
-                                    skm.piece('std_scale'), 
-                                    skm.piece(kb),
-                                    skm.piece(model)
-                            ])
+#     if skm.model_obj=='reg': kb = 'k_best'
+#     elif skm.model_obj=='class': kb = 'k_best_c'
+#     if use_rs:
+#         pipe = skm.model_pipe([
+#                                     skm.piece('random_sample'),
+#                                     skm.piece('std_scale'), 
+#                                     skm.piece(kb),
+#                                     skm.piece(model)
+#                             ])
+#     else:
+#         pipe = skm.model_pipe([
+#                                     skm.piece('std_scale'), 
+#                                     skm.piece(kb),
+#                                     skm.piece(model)
+#                             ])
 
-    params = skm.default_params(pipe)
-    if use_rs:
-        params['random_sample__frac'] = np.arange(0.3, 1, 0.05)
+#     params = skm.default_params(pipe)
+#     if use_rs:
+#         params['random_sample__frac'] = np.arange(0.3, 1, 0.05)
     
-    params[f'{kb}__k'] = range(1, 60)
+#     params[f'{kb}__k'] = range(1, 60)
 
-    return pipe, params
+#     return pipe, params
 
-def show_calibration_curve(y_true, y_pred, n_bins=10, strategy='uniform'):
+# def show_calibration_curve(y_true, y_pred, n_bins=10, strategy='uniform'):
 
-    from sklearn.calibration import calibration_curve
+#     from sklearn.calibration import calibration_curve
     
-    x, y = calibration_curve(y_true, y_pred, n_bins=n_bins, strategy=strategy)
+#     x, y = calibration_curve(y_true, y_pred, n_bins=n_bins, strategy=strategy)
 
-    # Plot perfectly calibrated
-    plt.plot([0, 1], [0, 1], linestyle = '--', label = 'Ideally Calibrated')
+#     # Plot perfectly calibrated
+#     plt.plot([0, 1], [0, 1], linestyle = '--', label = 'Ideally Calibrated')
     
-    # Plot model's calibration curve
-    plt.plot(y, x, marker = '.', label = 'Model')
+#     # Plot model's calibration curve
+#     plt.plot(y, x, marker = '.', label = 'Model')
     
-    leg = plt.legend(loc = 'upper left')
-    plt.xlabel('Average Predicted Probability in each bin')
-    plt.ylabel('Ratio of positives')
-    plt.show()
+#     leg = plt.legend(loc = 'upper left')
+#     plt.xlabel('Average Predicted Probability in each bin')
+#     plt.ylabel('Ratio of positives')
+#     plt.show()
 
-def show_results(skm, best_model, X_train, y_train, X_test, y_test):
-    best_model.fit(X_train, y_train)
+# def show_results(skm, best_model, X_train, y_train, X_test, y_test):
+#     best_model.fit(X_train, y_train)
 
-    if model_obj=='reg': 
-        y_test_pred = best_model.predict(X_test)
-        _ = skm.test_scores(y_test, y_test_pred)
-        plt.scatter(y_test_pred, y_test)
-    else: 
-        y_test_pred = best_model.predict_proba(X_test)[:,1]
-        _ = skm.test_scores(y_test, y_test_pred)
-        show_calibration_curve(y_test, y_test_pred, n_bins=8)
+#     if model_obj=='reg': 
+#         y_test_pred = best_model.predict(X_test)
+#         _ = skm.test_scores(y_test, y_test_pred)
+#         plt.scatter(y_test_pred, y_test)
+#     else: 
+#         y_test_pred = best_model.predict_proba(X_test)[:,1]
+#         _ = skm.test_scores(y_test, y_test_pred)
+#         show_calibration_curve(y_test, y_test_pred, n_bins=8)
         
 
-i = 1
+# i = 1
 
-rs = 12901235
-num_k_folds = 3
-use_random_sample = False
-model = 'enet'
-model_obj = 'reg'
-calibrate = False
+# rs = 12901235
+# num_k_folds = 3
+# use_random_sample = False
+# model = 'enet'
+# model_obj = 'reg'
+# calibrate = False
 
-r2_wt=0; sera_wt=1
-matt_wt=1; brier_wt=5
+# r2_wt=0; sera_wt=1
+# matt_wt=1; brier_wt=5
 
-skm, X_train, X_test, y_train, y_test = get_dataset(model_obj, rs=rs)
-pipe, params = get_models(model, skm, X_train, y_train, use_random_sample)
+# skm, X_train, X_test, y_train, y_test = get_dataset(model_obj, rs=rs)
+# pipe, params = get_models(model, skm, X_train, y_train, use_random_sample)
 
-if model_obj=='class': proba=True 
-else: proba=False
-best_model, stack_scores, stack_pred = skm.best_stack(pipe, params,
-                                                      X_train, y_train, n_iter=50, 
-                                                      run_adp=False, print_coef=False,
-                                                      sample_weight=False, proba=proba,
-                                                      random_state=(i*12)+(i*17), num_k_folds=num_k_folds, 
-                                                      calibrate=calibrate)
+# if model_obj=='class': proba=True 
+# else: proba=False
+# best_model, stack_scores, stack_pred = skm.best_stack(pipe, params,
+#                                                       X_train, y_train, n_iter=50, 
+#                                                       run_adp=False, print_coef=False,
+#                                                       sample_weight=False, proba=proba,
+#                                                       random_state=(i*12)+(i*17), num_k_folds=num_k_folds, 
+#                                                       calibrate=calibrate)
 
 
-print(best_model)
-if model_obj=='reg': print('Sera Wt', skm.sera_wt, 'R2 Wt', skm.r2_wt)
-if model_obj=='class': print('Matt Wt', skm.matt_wt, 'Brier Wt', skm.brier_wt)
-print('Num K Folds:', skm.num_k_folds)
-print('Calibrate:', calibrate)
-print('Use Random Sample:', use_random_sample)
-print('\nOut of Sample Results\n--------------')
-# show_calibration_curve(stack_pred['y'], stack_pred['stack_pred'], n_bins=8, strategy='quantile')
-show_results(skm, best_model, X_train, y_train, X_test, y_test)
-if model_obj=='class': show_calibration_curve(stack_pred['y'], stack_pred['stack_pred'], n_bins=8)
+# print(best_model)
+# if model_obj=='reg': print('Sera Wt', skm.sera_wt, 'R2 Wt', skm.r2_wt)
+# if model_obj=='class': print('Matt Wt', skm.matt_wt, 'Brier Wt', skm.brier_wt)
+# print('Num K Folds:', skm.num_k_folds)
+# print('Calibrate:', calibrate)
+# print('Use Random Sample:', use_random_sample)
+# print('\nOut of Sample Results\n--------------')
+# # show_calibration_curve(stack_pred['y'], stack_pred['stack_pred'], n_bins=8, strategy='quantile')
+# show_results(skm, best_model, X_train, y_train, X_test, y_test)
+# if model_obj=='class': show_calibration_curve(stack_pred['y'], stack_pred['stack_pred'], n_bins=8)
 
 
 # %%

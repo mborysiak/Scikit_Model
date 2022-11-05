@@ -11,6 +11,7 @@ from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_selection import SelectFromModel, SelectKBest,SelectPercentile, mutual_info_regression, f_regression, f_classif
 from sklearn.cluster import FeatureAgglomeration
+from sklearn_quantile import KNeighborsQuantileRegressor, SampleRandomForestQuantileRegressor
 
 # import all various models
 from sklearn.linear_model import Ridge, Lasso, LinearRegression, LogisticRegression, BayesianRidge, ElasticNet
@@ -126,6 +127,7 @@ class RandomSample(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
+        self.start_columns = X.columns
         X_s = X.sample(frac=self.frac, axis=1, random_state=self.seed)
         self.columns = X_s.columns
         return X_s
@@ -293,6 +295,8 @@ class PipeSetup(DataSetup):
                 'gbm_q': GradientBoostingRegressor(loss='quantile'),
                 'lgbm_q': LGBMRegressor(objective='quantile', verbose=-1, n_jobs=1),
                 'qr_q': QuantileRegressor(),
+                'rf_q': SampleRandomForestQuantileRegressor(),
+                'knn_q': KNeighborsQuantileRegressor(),
 
                 # classification algorithms
                 'lr_c': LogisticRegression(),
