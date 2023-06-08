@@ -5,6 +5,8 @@ from skmodel.pipe_setup import PipeSetup
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.base import clone
+from functools import partial
+import copy
 
 import pandas as pd
 import numpy as np
@@ -13,8 +15,7 @@ import numpy as np
 from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold, StratifiedGroupKFold, GroupKFold
 
-from hyperopt import fmin, hp, tpe
-from hyperopt import SparkTrials, STATUS_OK
+from hyperopt import fmin, hp, tpe, Trials, space_eval
 from hyperopt.pyll import scope
 
 from sklearn.linear_model import Ridge, Lasso
@@ -53,7 +54,6 @@ class SciKitModel(PipeSetup):
         self.randseed=set_seed
         self.num_k_folds = 1
         np.random.seed(self.randseed)
-        self.calibrate = False
 
         self.r2_wt = kwargs.get('r2_wt', 0)
         self.sera_wt = kwargs.get('sera_wt', 1)
@@ -77,7 +77,7 @@ class SciKitModel(PipeSetup):
             if var_type=='log': return 10**np.arange(low, high, spacing)
 
 
-    def default_params(self, pipe, bayes_rand='rand'):
+    def default_params(self, pipe, bayes_rand='rand', min_samples=20):
         """Function that returns default search parameters for pipe components
 
         Args:
@@ -140,7 +140,7 @@ class SciKitModel(PipeSetup):
             'huber': {
                     'alpha': self.param_range('log', -1.5, 1.5, 0.05, br, 'alpha'),
                     'epsilon': self.param_range('real', 1.2, 1.5, 0.03, br, 'epsilon'),
-                    'max_iter': self.param_range('int', 100, 200, 10, br, 'alpha')
+                    'max_iter': self.param_range('int', 100, 200, 10, br, 'max_iter')
                     },
 
             'lr_c': {
@@ -257,19 +257,19 @@ class SciKitModel(PipeSetup):
                     },
 
             'knn': {
-                    'n_neighbors':  self.param_range('int',10, 60, 1, br, 'n_neighbors'),
+                    'n_neighbors':  self.param_range('int',2, min_samples, 1, br, 'n_neighbors'),
                     'weights': self.param_range('cat',['distance', 'uniform'], None, None, br, 'weights'),
                     'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')
                     },
 
             'knn_c': {
-                    'n_neighbors':  self.param_range('int',1, 30, 1, br, 'n_neighbors'),
+                    'n_neighbors':  self.param_range('int',2, min_samples, 1, br, 'n_neighbors'),
                     'weights': self.param_range('cat',['distance', 'uniform'], None, None, br, 'weights'),
                     'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')
                     },
 
             'knn_q': {
-                    'n_neighbors':  self.param_range('int',10, 60, 1, br, 'n_neighbors'),
+                    'n_neighbors':  self.param_range('int',2, min_samples, 1, br, 'n_neighbors'),
                     'weights': self.param_range('cat', ['distance', 'uniform'], None, None, br, 'weights'),
                     'algorithm': self.param_range('cat', ['auto', 'ball_tree', 'kd_tree', 'brute'], None, None, br, 'algorithm')
                     },
@@ -454,21 +454,6 @@ class SciKitModel(PipeSetup):
         return score
 
 
-    def grid_search(self, pipe_to_fit, X, y, params, cv=5, scoring='neg_mean_squared_error'):
-
-        search = GridSearchCV(pipe_to_fit, params, cv=cv, scoring=scoring, refit=True)
-        best_model = search.fit(X, y)
-
-        return best_model.best_estimator_
-
-
-    def random_search(self, pipe_to_fit, X, y, params, cv=5, n_iter=50, n_jobs=-1, scoring='neg_mean_squared_error', fit_params={}):
-
-        search = RandomizedSearchCV(pipe_to_fit, params, n_iter=n_iter, cv=cv, 
-                                    scoring=scoring, n_jobs=n_jobs, refit=True)
-        best_model = search.fit(X, y, **fit_params)
-
-        return best_model.best_estimator_
 
 
     @staticmethod
@@ -482,7 +467,6 @@ class SciKitModel(PipeSetup):
     def rand_objective(self, params):
 
         self.cur_model.set_params(**params) 
-        if self.calibrate: self.cur_model = self.calibrate_cv(self.cur_model)
 
         try:
             if self.stacking:
@@ -499,8 +483,7 @@ class SciKitModel(PipeSetup):
             else:
                 val_predictions, _ = self.cv_predict_time_holdout(self.cur_model)
                 y_val = self.get_y_val()
-                score = self.custom_score(y_val, val_predictions)
-            
+                score = self.custom_score(y_val.values, val_predictions)
             
         except:
             print('Trial Failed')
@@ -509,12 +492,7 @@ class SciKitModel(PipeSetup):
         return score
 
 
-    def calibrate_cv(self, model):
 
-        from sklearn.calibration import CalibratedClassifierCV
-        model = CalibratedClassifierCV(model)
-        
-        return model
 
     def custom_rand_search(self, model, params, n_iters):
 
@@ -533,17 +511,53 @@ class SciKitModel(PipeSetup):
         try: model.steps[-1][1].n_jobs=-1
         except: pass
 
-        if self.calibrate: model = self.calibrate_cv(model)
-
         return model, param_output
+    
+    def get_bayes_params(self, num_past_runs, params):
+        # store all scores and parameters from the trials object into dataframe
+        param_output = pd.DataFrame()
+        best_score = np.max(self.trials.losses())
+        
+        for t in self.trials.trials:
+            trial_params = space_eval(params, {k:v[0] for k,v in t['misc']['vals'].items()})
+            
+            # find the best score from the most recent trials
+            # and set the model parameters to the best parameters
+            score = t['result']['loss']
+            if t['tid'] > num_past_runs and score < best_score:
+                best_score = score
+                best_params = copy.deepcopy(trial_params)
+
+            trial_params['score'] = score
+            param_output = pd.concat([param_output, pd.Series(trial_params)], axis=1)
+        param_output = param_output.T
+
+        return param_output, best_params
     
 
     def custom_bayes_search(self, model, params, n_iters):
 
-        from joblib import Parallel, delayed
+        try: model.steps[-1][1].n_jobs=-1
+        except: pass
+
         self.cur_model = model
 
-        print(params)
+        if self.trials is None: 
+            raise ValueError('Trials object must be provided for Bayesian Optimization')
+
+        num_past_runs = len(self.trials.tids)
+        max_evals = num_past_runs + n_iters
+        n_startup_jobs = np.min([int(max_evals/2), 20])
+
+        _ = fmin(self.rand_objective, space=params, algo=partial(tpe.suggest, n_startup_jobs=n_startup_jobs), trials=self.trials, max_evals=max_evals)
+
+        param_output, best_params = self.get_bayes_params(num_past_runs, params)
+    
+        model.set_params(**best_params)
+        try: model.steps[-1][1].n_jobs=-1
+        except: pass
+
+        return model, param_output
 
 
 
@@ -727,7 +741,7 @@ class SciKitModel(PipeSetup):
 
     def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50,
                        bayes_rand='rand', proba=False, sample_weight=False, random_seed=1234, alpha=0.5,
-                       scoring=None, cal_method='sigmoid'):
+                       scoring=None, trials=None):
    
         X_labels = self.data[['player', 'team', 'week', 'year', 'y_act']].copy()
         folds = self.get_fold_data(X, y, X_labels, time_col=col_split, val_cut=time_split, 
@@ -762,16 +776,13 @@ class SciKitModel(PipeSetup):
             self.proba=proba
             self.randseed = random_seed * i_seed
             self.alpha = alpha
-            self.cal_method = cal_method
+            self.trials = trials
             np.random.seed(self.randseed)
 
-            if bayes_rand == 'rand':
-                best_model = self.random_search(model, X_train, y_train, params, cv=cv_time_train, 
-                                                n_iter=n_iter, scoring=scoring, fit_params=fit_params)
-            elif bayes_rand == 'bayes':
-                best_model = self.bayes_search(model, params, n_iters=n_iter)
-
-            elif bayes_rand == 'custom_rand':
+            if bayes_rand == 'bayes':
+                best_model, param_scores = self.custom_bayes_search(model, params, n_iter)
+            
+            elif bayes_rand == 'rand':
                 best_model, ps = self.custom_rand_search(model, params, n_iters=n_iter)
                 param_scores = pd.concat([param_scores, ps], axis=0)
 
@@ -811,10 +822,10 @@ class SciKitModel(PipeSetup):
             }
 
         gc.collect()
-        return best_models, oof_data, param_scores
+        return best_models, oof_data, param_scores, self.trials
 
           
-    def test_scores(self, y, pred, sample_weight=None, alpha=0.5, label='Test'):
+    def test_scores(self, y, pred, sample_weight=None, label='Test'):
 
         if self.model_obj == 'reg':
             mse = mean_squared_error(y, pred, sample_weight=sample_weight)
@@ -840,7 +851,7 @@ class SciKitModel(PipeSetup):
 
         elif self.model_obj == 'quantile':
             
-            pinball = mean_pinball_loss(y, pred, sample_weight=sample_weight)
+            pinball = mean_pinball_loss(y, pred, sample_weight=sample_weight, alpha=self.alpha)
             print('Test Pinball Loss:', np.round(pinball,2))
 
             return pinball
@@ -895,7 +906,7 @@ class SciKitModel(PipeSetup):
         
     def best_stack(self, model, stack_params, X_stack, y_stack, n_iter=500, 
                    print_coef=True, run_adp=False, random_state=1234,
-                   alpha=0.5, proba=False, num_k_folds=1, calibrate=False, grp=None, wt_col=None):
+                   alpha=0.5, proba=False, num_k_folds=1,  grp=None, wt_col=None):
 
         self.X = X_stack
         self.y = y_stack
@@ -904,7 +915,6 @@ class SciKitModel(PipeSetup):
         self.alpha = alpha
         self.proba = proba
         self.num_k_folds = num_k_folds
-        self.calibrate = calibrate
         self.grp = grp
         self.wt_col = wt_col
 
@@ -966,109 +976,109 @@ class SciKitModel(PipeSetup):
 
 # %%
 
-from sklearn.datasets import make_regression, make_classification
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
+# from sklearn.datasets import make_regression, make_classification
+# from sklearn.model_selection import train_test_split
+# import matplotlib.pyplot as plt
 
-def get_dataset(model_obj, rs, weighting=False):
-    if model_obj=='reg':
-        X, y = make_regression(n_samples=1200, n_features=60, n_informative=20, n_targets=1, bias=2, effective_rank=5, tail_strength=0.5, noise=5, random_state=rs)
-    elif model_obj=='class':
-        X, y = make_classification(n_samples=1000, n_features=60, n_informative=15, weights=(0.8,0.2), 
-                                  n_redundant=3, flip_y=0.1, class_sep = 0.5, n_clusters_per_class=2, random_state=rs)
+# def get_dataset(model_obj, rs, weighting=False):
+#     if model_obj=='reg':
+#         X, y = make_regression(n_samples=1200, n_features=60, n_informative=20, n_targets=1, bias=2, effective_rank=5, tail_strength=0.5, noise=5, random_state=rs)
+#     elif model_obj=='class':
+#         X, y = make_classification(n_samples=1000, n_features=60, n_informative=15, weights=(0.8,0.2), 
+#                                   n_redundant=3, flip_y=0.1, class_sep = 0.5, n_clusters_per_class=2, random_state=rs)
     
 
-    X = pd.DataFrame(X); 
-    X.columns = [str(c) for c in X.columns]
-    y = pd.Series(y, name='y')
+#     X = pd.DataFrame(X); 
+#     X.columns = [str(c) for c in X.columns]
+#     y = pd.Series(y, name='y')
 
-    if weighting:
-        X['wt_col'] = np.random.uniform(0,1,len(X))
+#     if weighting:
+#         X['wt_col'] = np.random.uniform(0,1,len(X))
 
-    if model_obj=='class': stratify=y
-    else: stratify=None
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=rs, shuffle=True, stratify=stratify)
+#     if model_obj=='class': stratify=y
+#     else: stratify=None
+#     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=rs, shuffle=True, stratify=stratify)
 
-    skm = SciKitModel(pd.concat([X_train, y_train], axis=1), model_obj=model_obj, r2_wt=r2_wt, sera_wt=sera_wt, matt_wt=matt_wt, brier_wt=brier_wt)
+#     skm = SciKitModel(pd.concat([X_train, y_train], axis=1), model_obj=model_obj, r2_wt=r2_wt, sera_wt=sera_wt, matt_wt=matt_wt, brier_wt=brier_wt)
 
-    return skm, X_train, X_test, y_train, y_test
+#     return skm, X_train, X_test, y_train, y_test
 
 
-def get_models(model, skm, X, y, use_rs):
+# def get_models(model, skm, X, y, use_rs):
 
-    if skm.model_obj=='reg': kb = 'k_best'
-    elif skm.model_obj=='class': kb = 'k_best_c'
-    if use_rs:
-        pipe = skm.model_pipe([
-                                    skm.piece('random_sample'),
-                                    skm.piece('std_scale'), 
-                                    skm.piece(kb),
-                                    skm.piece(model)
-                            ])
-    else:
-        pipe = skm.model_pipe([
-                                    skm.piece('std_scale'), 
-                                    skm.piece(kb),
-                                    skm.piece(model)
-                            ])
+#     if skm.model_obj=='reg': kb = 'k_best'
+#     elif skm.model_obj=='class': kb = 'k_best_c'
+#     if use_rs:
+#         pipe = skm.model_pipe([
+#                                     skm.piece('random_sample'),
+#                                     skm.piece('std_scale'), 
+#                                     skm.piece(kb),
+#                                     skm.piece(model)
+#                             ])
+#     else:
+#         pipe = skm.model_pipe([
+#                                     skm.piece('std_scale'), 
+#                                     skm.piece(kb),
+#                                     skm.piece(model)
+#                             ])
 
-    params = skm.default_params(pipe, bayes_rand='bayes')
-    # if use_rs:
-    #     params['random_sample__frac'] = np.arange(0.3, 1, 0.05)
+#     params = skm.default_params(pipe, bayes_rand='bayes')
+#     # if use_rs:
+#     #     params['random_sample__frac'] = np.arange(0.3, 1, 0.05)
     
-    # params[f'{kb}__k'] = range(1, 60)
+#     # params[f'{kb}__k'] = range(1, 60)
 
-    return pipe, params
+#     return pipe, params
 
-def show_calibration_curve(y_true, y_pred, n_bins=10, strategy='uniform'):
+# def show_calibration_curve(y_true, y_pred, n_bins=10, strategy='uniform'):
 
-    from sklearn.calibration import calibration_curve
+#     from sklearn.calibration import calibration_curve
     
-    x, y = calibration_curve(y_true, y_pred, n_bins=n_bins, strategy=strategy)
+#     x, y = calibration_curve(y_true, y_pred, n_bins=n_bins, strategy=strategy)
 
-    # Plot perfectly calibrated
-    plt.plot([0, 1], [0, 1], linestyle = '--', label = 'Ideally Calibrated')
+#     # Plot perfectly calibrated
+#     plt.plot([0, 1], [0, 1], linestyle = '--', label = 'Ideally Calibrated')
     
-    # Plot model's calibration curve
-    plt.plot(y, x, marker = '.', label = 'Model')
+#     # Plot model's calibration curve
+#     plt.plot(y, x, marker = '.', label = 'Model')
     
-    leg = plt.legend(loc = 'upper left')
-    plt.xlabel('Average Predicted Probability in each bin')
-    plt.ylabel('Ratio of positives')
-    plt.show()
+#     leg = plt.legend(loc = 'upper left')
+#     plt.xlabel('Average Predicted Probability in each bin')
+#     plt.ylabel('Ratio of positives')
+#     plt.show()
 
-def show_results(skm, best_model, X_train, y_train, X_test, y_test, wts=None):
-    best_model.fit(X_train, y_train)
+# def show_results(skm, best_model, X_train, y_train, X_test, y_test, wts=None):
+#     best_model.fit(X_train, y_train)
 
-    if model_obj=='reg': 
-        y_test_pred = best_model.predict(X_test)
-        _ = skm.test_scores(y_test, y_test_pred, sample_weight=wts)
-        plt.scatter(y_test_pred, y_test)
-    else: 
-        y_test_pred = best_model.predict_proba(X_test)[:,1]
-        _ = skm.test_scores(y_test, y_test_pred, sample_weight=wts)
-        show_calibration_curve(y_test, y_test_pred, n_bins=8)
+#     if model_obj=='reg': 
+#         y_test_pred = best_model.predict(X_test)
+#         _ = skm.test_scores(y_test, y_test_pred, sample_weight=wts)
+#         plt.scatter(y_test_pred, y_test)
+#     else: 
+#         y_test_pred = best_model.predict_proba(X_test)[:,1]
+#         _ = skm.test_scores(y_test, y_test_pred, sample_weight=wts)
+#         show_calibration_curve(y_test, y_test_pred, n_bins=8)
         
 
-i = 1
+# i = 1
 
-rs = 12901235
-num_k_folds = 1
-use_random_sample = True
-model = 'lr_c'
-model_obj = 'class'
-calibrate = False
+# rs = 12901235
+# num_k_folds = 1
+# use_random_sample = True
+# model = 'lr_c'
+# model_obj = 'class'
+# calibrate = False
 
-r2_wt=0; sera_wt=1
-matt_wt=1; brier_wt=5
+# r2_wt=0; sera_wt=1
+# matt_wt=1; brier_wt=5
 
-skm, X_train, X_test, y_train, y_test = get_dataset(model_obj, rs=rs, weighting=True)
-X_train = X_train.reset_index(drop=True)
-y_train = y_train.reset_index(drop=True)
-X_test = X_test.reset_index(drop=True)
-y_test = y_test.reset_index(drop=True)
+# skm, X_train, X_test, y_train, y_test = get_dataset(model_obj, rs=rs, weighting=True)
+# X_train = X_train.reset_index(drop=True)
+# y_train = y_train.reset_index(drop=True)
+# X_test = X_test.reset_index(drop=True)
+# y_test = y_test.reset_index(drop=True)
 
-pipe, params = get_models(model, skm, X_train, y_train, use_random_sample)
+# pipe, params = get_models(model, skm, X_train, y_train, use_random_sample)
 
 
 
