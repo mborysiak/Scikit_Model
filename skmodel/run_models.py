@@ -516,7 +516,7 @@ class SciKitModel(PipeSetup):
     def get_bayes_params(self, num_past_runs, params):
         # store all scores and parameters from the trials object into dataframe
         param_output = pd.DataFrame()
-        best_score = np.max(self.trials.losses())
+        best_score = 100000000
         
         for t in self.trials.trials:
             trial_params = space_eval(params, {k:v[0] for k,v in t['misc']['vals'].items()})
