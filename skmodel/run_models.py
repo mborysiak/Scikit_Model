@@ -178,7 +178,8 @@ class SciKitModel(PipeSetup):
 
             'lgbm': {
                         'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
-                        'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves')
+                        'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
+                        
                     },
 
             'lgbm_c': {
@@ -473,7 +474,7 @@ class SciKitModel(PipeSetup):
             
                 score = []
                 for k in range(self.num_k_folds):
-                    self.randseed = (2+k) * self.randseed + k * 7
+                    self.randseed = (2+k) + self.randseed + k * 4
                     val_predictions = self.cv_predict(self.cur_model)
                     y_val = self.y_vals
                     cur_score = self.custom_score(y_val, val_predictions, self.wts)
@@ -549,7 +550,8 @@ class SciKitModel(PipeSetup):
         max_evals = num_past_runs + n_iters
         n_startup_jobs = np.min([int(max_evals/2), 20])
 
-        _ = fmin(self.rand_objective, space=params, algo=partial(tpe.suggest, n_startup_jobs=n_startup_jobs), trials=self.trials, max_evals=max_evals)
+        _ = fmin(self.rand_objective, space=params, algo=partial(tpe.suggest, n_startup_jobs=n_startup_jobs), 
+                 trials=self.trials, max_evals=max_evals, rstate=np.random.RandomState(self.randseed))
 
         param_output, best_params = self.get_bayes_params(num_past_runs, params)
     
@@ -905,8 +907,8 @@ class SciKitModel(PipeSetup):
 
         
     def best_stack(self, model, stack_params, X_stack, y_stack, n_iter=500, 
-                   print_coef=True, run_adp=False, random_state=1234,
-                   alpha=0.5, proba=False, num_k_folds=1,  grp=None, wt_col=None):
+                   print_coef=True, run_adp=False, random_state=1234, bayes_rand='rand',
+                   alpha=0.5, proba=False, num_k_folds=1,  grp=None, wt_col=None, trials=None):
 
         self.X = X_stack
         self.y = y_stack
@@ -917,8 +919,13 @@ class SciKitModel(PipeSetup):
         self.num_k_folds = num_k_folds
         self.grp = grp
         self.wt_col = wt_col
+        self.trials = trials
 
-        best_model, _ = self.custom_rand_search(model, stack_params, n_iters=n_iter)
+        if bayes_rand == 'bayes':
+            best_model, _ = self.custom_bayes_search(model, stack_params, n_iter)
+
+        elif bayes_rand == 'rand':
+            best_model, _ = self.custom_rand_search(model, stack_params, n_iters=n_iter)
 
         if run_adp:
             # print the OOS scores for ADP and model stack
@@ -945,7 +952,7 @@ class SciKitModel(PipeSetup):
     
         for k in range(num_k_folds):
 
-            self.randseed=random_state*17*(k*2+7)
+            self.randseed=random_state*3+(k*2+7)
             self.X = X_stack
 
             full_preds_k = self.cv_predict(best_model, cv=5)
@@ -971,7 +978,7 @@ class SciKitModel(PipeSetup):
                        'stack_pred': full_preds,
                        'y': y_out}
 
-        return best_model, scores, predictions
+        return best_model, scores, predictions, trials
 
 
 # %%
