@@ -58,7 +58,7 @@ class SciKitModel(PipeSetup):
         self.r2_wt = kwargs.get('r2_wt', 0)
         self.sera_wt = kwargs.get('sera_wt', 1)
         self.mse_wt = kwargs.get('mse_wt', 0)
-        self.matt_wt = kwargs.get('matt_wt', 1)
+        self.matt_wt = kwargs.get('matt_wt', 0)
         self.brier_wt = kwargs.get('brier_wt', 1)
         self.mae_wt = kwargs.get('mae_wt', 0)
 
@@ -178,19 +178,27 @@ class SciKitModel(PipeSetup):
 
             'lgbm': {
                         'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
-                        'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
+                        'num_leaves': self.param_range('int', 20, 100, 5, br, 'num_leaves'),
+                        'learning_rate': self.param_range('log', -3, -0.5, 0.1, br,  'learning_rate'),
+                        'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
+                        'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample')
                         
                     },
 
             'lgbm_c': {
                       'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
-                      'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves'),
-                  #    'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.2)],
+                      'num_leaves': self.param_range('int', 20, 100, 5, br, 'num_leaves'),
+                      'learning_rate': self.param_range('log', -3, -0.5, 0.1, br,  'learning_rate'),
+                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
+                      'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample')
                      },
 
             'lgbm_q': {
                         'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
-                        'num_leaves': self.param_range('int', 20, 50, 5, br, 'num_leaves')
+                        'num_leaves': self.param_range('int', 20, 100, 5, br, 'num_leaves'),
+                        'learning_rate': self.param_range('log', -3, -0.5, 0.1, br,  'learning_rate'),
+                        'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
+                        'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample')
                     },
 
             'xgb': {
@@ -538,8 +546,8 @@ class SciKitModel(PipeSetup):
 
     def custom_bayes_search(self, model, params, n_iters):
 
-        try: model.steps[-1][1].n_jobs=-1
-        except: pass
+        # try: model.steps[-1][1].n_jobs=-1
+        # except: pass
 
         self.cur_model = model
 
@@ -551,7 +559,7 @@ class SciKitModel(PipeSetup):
         n_startup_jobs = np.min([int(max_evals/2), 20])
 
         _ = fmin(self.rand_objective, space=params, algo=partial(tpe.suggest, n_startup_jobs=n_startup_jobs), 
-                 trials=self.trials, max_evals=max_evals, rstate=np.random.RandomState(self.randseed))
+                 trials=self.trials, max_evals=max_evals, rstate=np.random.default_rng(self.randseed))
 
         param_output, best_params = self.get_bayes_params(num_past_runs, params)
     
