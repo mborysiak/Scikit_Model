@@ -22,7 +22,7 @@ from sklearn.ensemble import VotingRegressor, VotingClassifier, StackingRegresso
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from xgboost import XGBRegressor, XGBClassifier
 from lightgbm import LGBMRegressor, LGBMClassifier
-from ngboost import NGBRegressor
+# from ngboost import NGBRegressor
 from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
 from sklearn.svm import LinearSVR, LinearSVC
 
@@ -284,7 +284,7 @@ class PipeSetup(DataSetup):
                 'gbm': GradientBoostingRegressor(),
                 'gbmh': HistGradientBoostingRegressor(),
                 'svr': LinearSVR(),
-                'ngb': NGBRegressor(),
+                # 'ngb': NGBRegressor(),
                 'bridge': BayesianRidge(),
                 'ada': AdaBoostRegressor(),
                 'tree': DecisionTreeRegressor(),

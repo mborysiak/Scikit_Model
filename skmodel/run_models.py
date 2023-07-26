@@ -27,13 +27,16 @@ from sklearn.metrics import matthews_corrcoef, f1_score, brier_score_loss
 from sklearn.metrics import mean_pinball_loss
 import gc
 
+from statsmodels.stats.stattools import medcouple
+
+
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning) 
 warnings.filterwarnings("ignore", category=UserWarning) 
 
-import pyspark as ps
-conf = ps.SparkConf()
-conf.set("spark.executor.heartbeatInterval","3600s")
+# import pyspark as ps
+# conf = ps.SparkConf()
+# conf.set("spark.executor.heartbeatInterval","3600s")
 
 class SciKitModel(PipeSetup):
     
@@ -251,7 +254,7 @@ class SciKitModel(PipeSetup):
                     'max_iter': self.param_range('int', 30, 100, 10, br, 'max_iter'),
                     'max_depth': self.param_range('int', 4, 12, 1, br,'max_depth'),
                     'min_samples_leaf': self.param_range('int', 5, 25, 2, br, 'min_samples_leaf'),
-                    'max_leaf_nodes': self.param_range('real', 20, 50, 3, br, 'max_leaf_nodes'),
+                    'max_leaf_nodes': self.param_range('int', 20, 50, 3, br, 'max_leaf_nodes'),
                     'l2_regularization': self.param_range('real', 0, 10, 1, br, 'l2_regularization'),
                     'learning_rate': self.param_range('log', -2, -0.5, 0.1, br, 'learning_rate')
                     },
@@ -260,7 +263,7 @@ class SciKitModel(PipeSetup):
                     'max_iter': self.param_range('int', 30, 100, 10, br, 'max_iter'),
                     'max_depth': self.param_range('int', 3, 12, 2, br,'max_depth'),
                     'min_samples_leaf': self.param_range('int', 5, 25, 2, br, 'min_samples_leaf'),
-                    'max_leaf_nodes': self.param_range('real', 15, 50, 5, br, 'max_leaf_nodes'),
+                    'max_leaf_nodes': self.param_range('int', 15, 50, 5, br, 'max_leaf_nodes'),
                     'l2_regularization': self.param_range('real', 0, 10, 1, br, 'l2_regularization'),
                     'learning_rate': self.param_range('log', -2, -0.5, 0.1, br, 'learning_rate')
                     },
@@ -361,7 +364,6 @@ class SciKitModel(PipeSetup):
 
     @staticmethod
     def get_quantile_stats(data):
-        from statsmodels.stats.stattools import medcouple
         q_min, q_max = np.min(data), np.max(data)
         q1, q2, q3 = np.percentile(data, [25, 50, 75])
         iqr = q3 - q1
@@ -468,8 +470,10 @@ class SciKitModel(PipeSetup):
     @staticmethod
     def param_select(params):
         param_select = {}
-        for k, v in params.items():
-            param_select[k] = np.random.choice(v)
+        for k in params.keys():
+            v = params[k]
+            select_idx = np.random.choice(len(v))
+            param_select[k] = v[select_idx]
         return param_select
 
 
@@ -493,7 +497,7 @@ class SciKitModel(PipeSetup):
                 val_predictions, _ = self.cv_predict_time_holdout(self.cur_model)
                 y_val = self.get_y_val()
                 score = self.custom_score(y_val.values, val_predictions)
-            
+                
         except:
             print('Trial Failed')
             score=100000000
@@ -989,7 +993,7 @@ class SciKitModel(PipeSetup):
         return best_model, scores, predictions, trials
 
 
-# %%
+#%%
 
 # from sklearn.datasets import make_regression, make_classification
 # from sklearn.model_selection import train_test_split
