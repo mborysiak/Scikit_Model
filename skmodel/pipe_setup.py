@@ -291,11 +291,11 @@ class PipeSetup(DataSetup):
                 'huber': HuberRegressor(),
 
                 # quantile regression
-                # 'gbm_q': HistGradientBoostingRegressor(loss='quantile'),
+                'gbmh_q': HistGradientBoostingRegressor(loss='quantile'),
                 'gbm_q': GradientBoostingRegressor(loss='quantile'),
                 'lgbm_q': LGBMRegressor(objective='quantile', verbose=-1, n_jobs=1),
                 'qr_q': QuantileRegressor(),
-                'rf_q': SampleRandomForestQuantileRegressor(),
+                'rf_q': SampleRandomForestQuantileRegressor(n_jobs=1),
                 'knn_q': KNeighborsQuantileRegressor(),
 
                 # classification algorithms
