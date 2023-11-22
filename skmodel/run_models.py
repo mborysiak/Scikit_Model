@@ -114,7 +114,7 @@ class SciKitModel(PipeSetup):
             'random_sample': {'frac': self.param_range('real', 0.25, 0.65, 0.02, br, 'frac'),
                               'seed': self.param_range('int', 0, 10000, 1000, br, 'seed')},
             'agglomeration': {'n_clusters': self.param_range('int', 2, 25, 2, br, 'n_clusters')},
-            'pca': {'n_components': self.param_range('int', 2, 25, 2, br, 'n_components')},
+            'pca': {'n_components': self.param_range('int', 2, 20, 2, br, 'n_components')},
             'k_best': {'k': self.param_range('int', 20, 125, 5, br, 'k')},
             'select_perc': {'percentile': self.param_range('int', 20, 55, 3, br, 'select_perc')},
             'k_best_c': {'k': self.param_range('int', 20, 125, 5, br, 'k_best_c')},
@@ -182,26 +182,29 @@ class SciKitModel(PipeSetup):
             'lgbm': {
                         'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
                         'num_leaves': self.param_range('int', 20, 100, 5, br, 'num_leaves'),
-                        'learning_rate': self.param_range('log', -3, -0.5, 0.1, br,  'learning_rate'),
+                        'learning_rate': self.param_range('log', -3, 0, 0.1, br,  'learning_rate'),
                         'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
-                        'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample')
+                        'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
+                        'min_child_samples': self.param_range('int', 1, 50, 2, br, 'min_child_samples')
                         
                     },
 
             'lgbm_c': {
                       'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
                       'num_leaves': self.param_range('int', 20, 100, 5, br, 'num_leaves'),
-                      'learning_rate': self.param_range('log', -3, -0.5, 0.1, br,  'learning_rate'),
+                      'learning_rate': self.param_range('log', -3, 0, 0.1, br,  'learning_rate'),
                       'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
-                      'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample')
+                      'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
+                      'min_child_samples': self.param_range('int', 1, 50, 2, br, 'min_child_samples')
                      },
 
             'lgbm_q': {
                         'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
                         'num_leaves': self.param_range('int', 20, 100, 5, br, 'num_leaves'),
-                        'learning_rate': self.param_range('log', -3, -0.5, 0.1, br,  'learning_rate'),
+                        'learning_rate': self.param_range('log', -3, 0, 0.1, br,  'learning_rate'),
                         'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
-                        'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample')
+                        'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
+                        'min_child_samples': self.param_range('int', 1, 50, 2, br, 'min_child_samples')
                     },
 
             'xgb': {
@@ -225,8 +228,8 @@ class SciKitModel(PipeSetup):
                      },
 
             'gbm': {
-                    'n_estimators': self.param_range('int', 30, 110, 5, br, 'n_estimators'),
-                    'max_depth': self.param_range('int', 2, 20, 2, br,'max_depth'),
+                    'n_estimators': self.param_range('int', 20, 90, 3, br, 'n_estimators'),
+                    'max_depth': self.param_range('int', 2, 18, 2, br,'max_depth'),
                     'min_samples_leaf': self.param_range('int', 5, 20, 2, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
                     'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample'),
@@ -244,7 +247,7 @@ class SciKitModel(PipeSetup):
 
             'gbm_q': {
                     'n_estimators': self.param_range('int', 10, 60, 5, br, 'n_estimators'),
-                    'max_depth': self.param_range('int', 2, 20, 2, br,'max_depth'),
+                    'max_depth': self.param_range('int', 2, 18, 2, br,'max_depth'),
                     'min_samples_leaf': self.param_range('int', 4, 25, 3, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
                     'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')
@@ -807,6 +810,7 @@ class SciKitModel(PipeSetup):
                 best_model, ps = self.custom_rand_search(model, params, n_iters=n_iter)
                 param_scores = pd.concat([param_scores, ps], axis=0)
 
+            
             best_models.append(clone(best_model))
             val_pred, hold_pred = self.cv_predict_time_holdout(best_model, sample_weight)
             

@@ -146,7 +146,7 @@ class PCAAtMost(PCA):
     def _check_params(self, X, y):
         if not (0 <= self.n_components <= X.shape[1]):
             # set k to "all" (skip feature selection), if less than k features are available
-            self.n_components = X.shape[1] - 2
+            self.n_components = X.shape[1] - 5
 
 class AgglomerationAtMost(FeatureAgglomeration):
 
