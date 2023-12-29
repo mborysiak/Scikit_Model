@@ -115,9 +115,9 @@ class SciKitModel(PipeSetup):
                               'seed': self.param_range('int', 0, 10000, 1000, br, 'seed')},
             'agglomeration': {'n_clusters': self.param_range('int', 2, 25, 2, br, 'n_clusters')},
             'pca': {'n_components': self.param_range('int', 2, 20, 2, br, 'n_components')},
-            'k_best': {'k': self.param_range('int', 20, 125, 5, br, 'k')},
+            'k_best': {'k': self.param_range('int', 20, 150, 5, br, 'k')},
             'select_perc': {'percentile': self.param_range('int', 20, 55, 3, br, 'select_perc')},
-            'k_best_c': {'k': self.param_range('int', 20, 125, 5, br, 'k_best_c')},
+            'k_best_c': {'k': self.param_range('int', 20, 150, 5, br, 'k_best_c')},
             'select_perc_c': {'percentile': self.param_range('int', 20, 55, 3, br, 'select_perc_c')},
             'select_from_model': {'estimator': [Ridge(alpha=0.1), Ridge(alpha=1), Ridge(alpha=10),
                                                 Lasso(alpha=0.1), Lasso(alpha=1), Lasso(alpha=10),
@@ -318,7 +318,21 @@ class SciKitModel(PipeSetup):
                     'learning_rate': self.param_range('log', -2, 1, 0.1, br, 'learning_rate'),
                     'loss': self.param_range('cat', ['linear', 'square', 'exponential'], None, None, br, 'loss')
                     },
-
+            
+            'mlp': {
+                    'hidden_layer_sizes': self.param_range('int', 20, 100, 10, br, 'hidden_layer_sizes'),
+                    'alpha': self.param_range('log', -4, -1, 0.1, br, 'alpha'),
+                    'learning_rate_init': self.param_range('log', -3, 0, 0.1, br, 'learning_rate_init'),
+                    'max_iter': self.param_range('int', 100, 500, 50, br, 'max_iter'),
+                    'learning_rate': self.param_range('cat', ['constant', 'invscaling', 'adaptive'], None, None, br, 'learning_rate')
+                    },
+            'mlp_c': {
+                    'hidden_layer_sizes': self.param_range('int', 20, 100, 10, br, 'hidden_layer_sizes'),
+                    'alpha': self.param_range('log', -5, -1, 0.1, br, 'alpha'),
+                    'learning_rate_init': self.param_range('log', -3, 0, 0.1, br, 'learning_rate_init'),
+                    'max_iter': self.param_range('int', 100, 500, 50, br, 'max_iter'),
+                    'learning_rate': self.param_range('cat', ['constant', 'invscaling', 'adaptive'], None, None, br, 'learning_rate')
+                    }
         }
 
         # initialize the parameter dictionary
