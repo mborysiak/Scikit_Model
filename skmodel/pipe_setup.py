@@ -2,6 +2,7 @@ from tabnanny import verbose
 from skmodel.data_setup import DataSetup
 from sklearn.pipeline import FeatureUnion, Pipeline
 import numpy as np
+import pandas as pd
 
 # feature selection
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
@@ -12,6 +13,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_selection import SelectFromModel, SelectKBest,SelectPercentile, mutual_info_regression, f_regression, f_classif
 from sklearn.cluster import FeatureAgglomeration
 from sklearn_quantile import KNeighborsQuantileRegressor, SampleRandomForestQuantileRegressor
+from scipy.stats import spearmanr
 
 # import all various models
 from sklearn.linear_model import Ridge, Lasso, LinearRegression, LogisticRegression, BayesianRidge, ElasticNet
@@ -132,6 +134,60 @@ class RandomSample(BaseEstimator, TransformerMixin):
         X_s = X.sample(frac=self.frac, axis=1, random_state=self.seed)
         self.columns = X_s.columns
         return X_s
+    
+
+class CorrCollinearRemove(BaseEstimator, TransformerMixin):
+
+    def __init__(self, corr_percentile=0, collinear_threshold=0.98, corr_type='pearson', abs_collinear=True):
+        """
+        A Custom BaseEstimator that can switch between classifiers.
+        :param estimator: sklearn object - The classifier
+        """ 
+        self.corr_percentile = corr_percentile
+        self.collinear_threshold = collinear_threshold
+        self.corr_type = corr_type
+        self.abs_collinear = abs_collinear
+        
+
+    def fit(self, X, y):
+        
+        y = pd.Series(y,name='y_act')
+        df = pd.concat([X, y], axis=1)
+        obj_cols = list(df.dtypes[df.dtypes=='object'].index)
+        df = df.drop(obj_cols, axis=1)
+
+        if self.corr_type=='spearman':
+            all_corrs = pd.DataFrame(spearmanr(df)[0],index=df.columns, columns=df.columns)
+        elif self.corr_type=='pearson':
+            all_corrs = pd.DataFrame(np.corrcoef(df.drop(obj_cols, axis=1).values, rowvar=False), 
+                                    columns=[c for c in df.columns if c not in obj_cols],
+                                    index=[c for c in df.columns if c not in obj_cols])
+            
+        all_corrs = all_corrs.dropna(subset=['y_act'])
+        self.keep_columns = []
+        self.remove_columns = []
+        try:
+            corr_threshold = np.percentile(np.abs(all_corrs.y_act), self.corr_percentile)
+            corrs = all_corrs.loc[abs(all_corrs.y_act) >= corr_threshold]
+            corr_order = np.array(corrs.loc[corrs.index!='y_act', 'y_act'].abs().sort_values(ascending=False).index)
+
+            
+            for c in corr_order:
+                if c not in self.remove_columns: 
+                    self.keep_columns.append(c)
+                    if self.abs_collinear: self.remove_columns.extend(corrs[abs(corrs[c]) > self.collinear_threshold].index)
+                    else: self.remove_columns.extend(corrs[corrs[c] > self.collinear_threshold].index)
+                    self.remove_columns = list(set(self.remove_columns))
+
+            if len(self.keep_columns) < 50:
+                self.keep_columns = [c for c in corr_order[:50] if c not in self.keep_columns]
+        except:
+            self.keep_columns = X.columns
+
+        return self
+
+    def transform(self, X, y=None):
+        return X[self.keep_columns]
 
 
 class SelectAtMostKBest(SelectKBest):
@@ -140,6 +196,13 @@ class SelectAtMostKBest(SelectKBest):
         if not (self.k == "all" or 0 <= self.k <= X.shape[1]):
             # set k to "all" (skip feature selection), if less than k features are available
             self.k = "all"
+
+# class MutualInfoAtMost(mutual_info_regression):
+
+#     def _check_params(self, X, y):
+#         if not (self.k == "all" or 0 <= self.k <= X.shape[1]):
+#             # set k to "all" (skip feature selection), if less than k features are available
+#             self.k = "all"
 
 
 class PCAAtMost(PCA):
@@ -265,9 +328,13 @@ class PipeSetup(DataSetup):
                 'select_perc': SelectPercentile(score_func=f_regression, percentile=10),
                 'select_perc_c': SelectPercentile(score_func=f_classif, percentile=10),
                 'select_from_model': SelectFromModel(estimator=Ridge()),
+                'select_from_model_c': SelectFromModel(estimator=LogisticRegression()),
                 'k_best': SelectAtMostKBest(score_func=f_regression, k=10),
                 'k_best_c': SelectAtMostKBest(score_func=f_classif, k=10),
+                'k_best_fu': SelectAtMostKBest(score_func=f_regression, k=10),
+                'k_best_c_fu': SelectAtMostKBest(score_func=f_classif, k=10),
                 'feature_switcher': FeatureExtractionSwitcher(),
+                'corr_collinear': CorrCollinearRemove(),
 
                 # feature transformation
                 'pca': PCAAtMost(),
