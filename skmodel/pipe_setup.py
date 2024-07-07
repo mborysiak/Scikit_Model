@@ -24,6 +24,7 @@ from sklearn.ensemble import VotingRegressor, VotingClassifier, StackingRegresso
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from xgboost import XGBRegressor, XGBClassifier
 from lightgbm import LGBMRegressor, LGBMClassifier
+from catboost import CatBoostRegressor, CatBoostClassifier
 from sklearn.neural_network import MLPRegressor, MLPClassifier
 # from ngboost import NGBRegressor
 from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
@@ -358,6 +359,7 @@ class PipeSetup(DataSetup):
                 'tree': DecisionTreeRegressor(),
                 'huber': HuberRegressor(),
                 'mlp': MLPRegressor(),
+                'cb': CatBoostRegressor(verbose=0),
 
                 # quantile regression
                 'gbmh_q': HistGradientBoostingRegressor(loss='quantile'),
@@ -379,7 +381,8 @@ class PipeSetup(DataSetup):
                 'ada_c': AdaBoostClassifier(),
                 'ridge_c': RidgeClassifier(),
                 'tree_c': DecisionTreeClassifier(),
-                'mlp_c': MLPClassifier()
+                'mlp_c': MLPClassifier(),
+                'cb_c': CatBoostClassifier(verbose=0),
             }
 
         piece = (label, piece_options[label])

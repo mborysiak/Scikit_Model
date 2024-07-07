@@ -346,6 +346,22 @@ class SciKitModel(PipeSetup):
                     'l2_regularization': self.param_range('real', 0, 10, 1, br, 'l2_regularization'),
                     'learning_rate': self.param_range('log', -2, -0.5, 0.1, br, 'learning_rate')
                     },
+            
+            'cb': {
+                    'iterations': self.param_range('int', 50, 175, 10, br, 'iterations'),
+                    'depth': self.param_range('int', 1, 8, 1, br, 'depth'),
+                    'learning_rate': self.param_range('log', -6, 0, 0.1, br, 'learning_rate'),
+                    'l2_leaf_reg': self.param_range('real', 0, 20, 1, br, 'l2_leaf_reg'),
+                    'random_strength': self.param_range('real', 0, 20, 1, br, 'random_strength')
+                    },
+
+            'cb_c': {
+                    'iterations': self.param_range('int', 50, 175, 10, br, 'iterations'),
+                    'depth': self.param_range('int', 1, 8, 1, br, 'depth'),
+                    'learning_rate': self.param_range('log', -6, 0, 0.1, br, 'learning_rate'),
+                    'l2_leaf_reg': self.param_range('real', 0, 20, 1, br, 'l2_leaf_reg'),
+                    'random_strength': self.param_range('real', 0, 20, 1, br, 'random_strength')
+                    },
 
             'knn': {
                     'n_neighbors':  self.param_range('int',2, min_samples, 1, br, 'n_neighbors'),
@@ -567,8 +583,10 @@ class SciKitModel(PipeSetup):
         return param_select
 
 
-    def rand_objective(self, params):
+    def rand_objective(self, model, params):
 
+        print(params)
+        self.cur_model = copy.deepcopy(model)
         self.cur_model.set_params(**params) 
 
         try:
@@ -642,8 +660,6 @@ class SciKitModel(PipeSetup):
         try: model.steps[-1][1].n_jobs=-1
         except: pass
 
-        self.cur_model = model
-
         if self.trials is None: 
             raise ValueError('Trials object must be provided for Bayesian Optimization')
 
@@ -653,16 +669,17 @@ class SciKitModel(PipeSetup):
         if self.hp_algo=='tpe': algo = partial(tpe.suggest, n_startup_jobs=n_startup_jobs)
         elif self.hp_algo=='atpe': algo = atpe.suggest
 
-        _ = fmin(self.rand_objective, space=params, algo=algo, 
+        _ = fmin(partial(self.rand_objective, copy.deepcopy(model)), space=params, algo=algo, 
                  trials=self.trials, max_evals=max_evals, rstate=np.random.default_rng(self.randseed))
 
         param_output, best_params = self.get_bayes_params(num_past_runs, params)
     
-        model.set_params(**best_params)
-        try: model.steps[-1][1].n_jobs=-1
+        best_model = copy.deepcopy(model)
+        best_model.set_params(**best_params)
+        try: best_model.steps[-1][1].n_jobs=-1
         except: pass
 
-        return model, param_output
+        return best_model, param_output
 
 
 
