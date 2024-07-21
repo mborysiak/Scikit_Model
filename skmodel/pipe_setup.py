@@ -213,12 +213,35 @@ class PCAAtMost(PCA):
             # set k to "all" (skip feature selection), if less than k features are available
             self.n_components = X.shape[1] - 5
 
+        if not (0 <= self.n_components <= X.shape[0]):
+            # set k to "all" (skip feature selection), if less than k features are available
+            self.n_components = np.min([X.shape[0],X.shape[1]]) - 5
+
+# class AgglomerationAtMost(FeatureAgglomeration):
+
+#     def _check_params(self, X, y):
+#         if not (0 <= self.n_clusters <= X.shape[1]):
+#             # set k to "all" (skip feature selection), if less than k features are available
+#             self.n_clusters = X.shape[1] - 5
+
+#         if not (0 <= self.n_clusters <= X.shape[0]):
+#             # set k to "all" (skip feature selection), if less than k features are available
+#             self.n_clusters = np.min([X.shape[0],X.shape[1]]) - 5
+
+
 class AgglomerationAtMost(FeatureAgglomeration):
 
-    def _check_params(self, X, y):
-        if not (0 <= self.n_clusters <= X.shape[1]):
-            # set k to "all" (skip feature selection), if less than k features are available
-            self.n_clusters = X.shape[1] - 2
+    def __init__(self, n_clusters=2, **kwargs):
+        super().__init__(n_clusters=n_clusters, **kwargs)
+
+    def fit(self, X, y=None):
+        # Get the minimum of number of samples and number of features
+        min_samples_features = min(X.shape[0], X.shape[1])
+        
+        if min_samples_features < self.n_clusters:
+            self.n_clusters = min_samples_features
+            
+        return super().fit(X, y)
 
 
 class PipeSetup(DataSetup):
@@ -368,6 +391,7 @@ class PipeSetup(DataSetup):
                 'qr_q': QuantileRegressor(),
                 'rf_q': SampleRandomForestQuantileRegressor(n_jobs=1),
                 'knn_q': KNeighborsQuantileRegressor(),
+                'cb_q': CatBoostRegressor(verbose=0),
 
                 # classification algorithms
                 'lr_c': LogisticRegression(),

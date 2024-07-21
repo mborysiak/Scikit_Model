@@ -20,6 +20,7 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, Stratified
 from sklearn.feature_selection import f_regression, f_classif, r_regression, chi2, mutual_info_regression, mutual_info_classif
 from hyperopt import fmin, hp, atpe, tpe, Trials, space_eval
 from hyperopt.pyll import scope
+import optuna
 
 from sklearn.linear_model import Ridge, Lasso, LogisticRegression
 from sklearn.ensemble import RandomForestRegressor
@@ -86,6 +87,12 @@ class SciKitModel(PipeSetup):
             if var_type=='real': return np.arange(low, high, spacing)
             if var_type=='cat': return low
             if var_type=='log': return 10**np.arange(low, high, spacing)
+
+        elif bayes_rand=='optuna':
+            if var_type=='int': return [var_type, low, high]
+            if var_type=='real': return [var_type, low, high]
+            if var_type=='cat': return [var_type, low]
+            if var_type=='log': return [var_type, low, high]
 
 
     def default_params(self, pipe, bayes_rand='rand', min_samples=20):
@@ -195,31 +202,31 @@ class SciKitModel(PipeSetup):
 
             # model params
             'ridge': {
-                        'alpha': self.param_range('log', 0, 3, 0.1, br, 'alpha')
+                        'alpha': self.param_range('log', -2, 6, 0.1, br, 'alpha')
                      },
 
             'lasso': {
-                        'alpha': self.param_range('log', -2, 0.5, 0.05, br, 'alpha')
+                        'alpha': self.param_range('log', -4, 4, 0.05, br, 'alpha')
                     },
 
             'enet': {
-                    'alpha': self.param_range('log', -2, 1, 0.1, br, 'alpha'),
-                    'l1_ratio': self.param_range('real', 0.05, 0.5, 0.03, br, 'l1_ratio')
+                    'alpha': self.param_range('log', -4, 4, 0.1, br, 'alpha'),
+                    'l1_ratio': self.param_range('real', 0.1, 0.9, 0.03, br, 'l1_ratio')
                     },
 
             'huber': {
-                    'alpha': self.param_range('log', -1.5, 1.5, 0.05, br, 'alpha'),
+                    'alpha': self.param_range('log', -3, 3, 0.05, br, 'alpha'),
                     'epsilon': self.param_range('real', 1.2, 1.5, 0.03, br, 'epsilon'),
-                    'max_iter': self.param_range('int', 100, 200, 10, br, 'max_iter')
+                    'max_iter': self.param_range('int', 50, 200, 10, br, 'max_iter')
                     },
 
             'lr_c': {
-                    'C': self.param_range('log', -4, 1, 0.1, br, 'C'),
+                    'C': self.param_range('log', -4, 4, 0.1, br, 'C'),
                   #  'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.1)]
                     },
             
             'qr_q': {
-                        'alpha': self.param_range('log', -3, 0, 0.05, br, 'alpha'),
+                        'alpha': self.param_range('log', -3, 3, 0.05, br, 'alpha'),
                         'solver': self.param_range('cat', ['highs-ds', 'highs-ipm', 'highs'], None, None, br, 'solver')
                     },
 
@@ -357,6 +364,14 @@ class SciKitModel(PipeSetup):
                     },
 
             'cb_c': {
+                    'iterations': self.param_range('int', 50, 175, 10, br, 'iterations'),
+                    'depth': self.param_range('int', 1, 8, 1, br, 'depth'),
+                    'learning_rate': self.param_range('log', -5, 0, 0.1, br, 'learning_rate'),
+                    'l2_leaf_reg': self.param_range('real', 0, 20, 1, br, 'l2_leaf_reg'),
+                    'random_strength': self.param_range('real', 0, 20, 1, br, 'random_strength')
+                    },
+
+            'cb_q': {
                     'iterations': self.param_range('int', 50, 175, 10, br, 'iterations'),
                     'depth': self.param_range('int', 1, 8, 1, br, 'depth'),
                     'learning_rate': self.param_range('log', -5, 0, 0.1, br, 'learning_rate'),
@@ -654,7 +669,6 @@ class SciKitModel(PipeSetup):
         param_output = param_output.T
 
         return param_output, best_params
-    
 
     def custom_bayes_search(self, model, params, n_iters):
 
@@ -681,7 +695,48 @@ class SciKitModel(PipeSetup):
         except: pass
 
         return best_model, param_output
+    
 
+    def optuna_objective(self, trial, model, params):
+
+        params_opt = {}
+        for k, v in params.items():
+            if v[0] == 'real': params_opt[k] = trial.suggest_float(k, v[1], v[2], log=False)
+            elif v[0] == 'log': params_opt[k] = trial.suggest_float(k, np.exp(v[1]), np.exp(v[2]), log=True)
+            elif v[0] == 'int': params_opt[k] = trial.suggest_int(k, v[1], v[2])
+            elif v[0] == 'categorical': params_opt[k] = trial.suggest_categorical(k, v[1])
+
+        return self.rand_objective(model, params_opt)
+    
+    def get_optuna_params(self, num_past_runs):
+        min_val = 10000000
+        for t in self.trials.get_trials()[num_past_runs:]:
+            if t.values[0] < min_val:
+                min_val = t.values[0]
+                min_trial = t
+
+        return min_trial.params
+
+
+    def custom_optuna_search(self, model, params, n_iters):
+
+        try: model.steps[-1][1].n_jobs=-1
+        except: pass
+
+        num_past_runs = len(self.trials.trials)
+        self.trials.optimize(partial(self.optuna_objective, model=copy.deepcopy(model), params=params), 
+                             n_trials=n_iters, timeout=self.optuna_timeout)
+        
+        best_params = self.get_optuna_params(num_past_runs)
+
+        best_model = copy.deepcopy(model)
+        best_model.set_params(**best_params)
+        try: best_model.steps[-1][1].n_jobs=-1
+        except: pass
+
+        return best_model, pd.DataFrame()
+
+    
 
 
     def cv_score(self, model, X, y, cv=5, scoring='neg_mean_squared_error', 
@@ -864,7 +919,7 @@ class SciKitModel(PipeSetup):
 
     def time_series_cv(self, model, X, y, params, col_split, time_split, n_splits=5, n_iter=50,
                        bayes_rand='rand', proba=False, sample_weight=False, random_seed=1234, alpha=0.5,
-                       scoring=None, trials=None):
+                       scoring=None, trials=None, optuna_timeout=60*10):
    
         X_labels = self.data[['player', 'team', 'week', 'year', 'y_act']].copy()
         folds = self.get_fold_data(X, y, X_labels, time_col=col_split, val_cut=time_split, 
@@ -900,6 +955,8 @@ class SciKitModel(PipeSetup):
             self.randseed = random_seed * i_seed
             self.alpha = alpha
             self.trials = trials
+            self.optuna_timeout = optuna_timeout
+
             np.random.seed(self.randseed)
 
             if bayes_rand == 'bayes':
@@ -909,6 +966,9 @@ class SciKitModel(PipeSetup):
                 best_model, ps = self.custom_rand_search(model, params, n_iters=n_iter)
                 param_scores = pd.concat([param_scores, ps], axis=0)
 
+            elif bayes_rand == 'optuna':
+                best_model, ps = self.custom_optuna_search(model, params, n_iters=n_iter)
+                param_scores = pd.concat([param_scores, ps], axis=0)
             
             best_models.append(clone(best_model))
             val_pred, hold_pred = self.cv_predict_time_holdout(best_model, sample_weight)
@@ -1105,132 +1165,130 @@ class SciKitModel(PipeSetup):
 
 #%%
 
-# from sklearn.datasets import make_regression, make_classification
-# from sklearn.model_selection import train_test_split
-# import matplotlib.pyplot as plt
+# # set to this year for the projections
+# year = 2024
+# from ff.db_operations import DataManage
+# from ff import general
+# import pandas as pd
+# import numpy as np
+# import warnings
+# warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
+# pd.set_option('display.max_columns', 999)
 
-# def get_dataset(model_obj, rs, weighting=False):
-#     if model_obj=='reg':
-#         X, y = make_regression(n_samples=1200, n_features=60, n_informative=20, n_targets=1, bias=2, effective_rank=5, tail_strength=0.5, noise=5, random_state=rs)
-#     elif model_obj=='class':
-#         X, y = make_classification(n_samples=1000, n_features=60, n_informative=15, weights=(0.8,0.2), 
-#                                   n_redundant=3, flip_y=0.1, class_sep = 0.5, n_clusters_per_class=2, random_state=rs)
+# # set the root path and database management object
+# root_path = general.get_main_path('Fantasy_Football')
+# db_path = f'{root_path}/Data/Databases/'
+# dm = DataManage(db_path)
+# DB_NAME = 'Season_Stats_New'
+
+# pos = 'WR'
+
+
+# # from skmodel import SciKitModel
+# from hyperopt import Trials
+
+# alpha = 0.8
+# proba = False
+# model_obj = 'reg'
+
+# # Xy = dm.read(f"SELECT * FROM {pos}_{year}_ProjOnly WHERE pos='{pos}' ", 'Model_Inputs')
+# Xy = dm.read(f"SELECT * FROM {pos}_{year}_Stats WHERE pos='{pos}' ", 'Model_Inputs')
+# # Xy = dm.read(f"SELECT * FROM {pos}_{year}_Rookie ", 'Model_Inputs')
+
+# Xy = Xy.sort_values(by='year').reset_index(drop=True)
+# Xy['team'] = 'team'
+# Xy['week'] = 1
+# Xy['game_date'] = Xy.year
+
+# if proba: Xy = Xy.drop('y_act', axis=1).rename(columns={'y_act_class': 'y_act'})
+# else: Xy = Xy.drop('y_act_class', axis=1)
+
+# pred = Xy[Xy.year==2024].copy().reset_index(drop=True)
+# train = Xy[Xy.year<2024].copy().reset_index(drop=True)
+# print(Xy.shape)
+
+# preds = []
+# actuals = []
+
+# skm = SciKitModel(train, model_obj=model_obj, alpha=alpha, hp_algo='atpe')
+# to_drop = list(train.dtypes[train.dtypes=='object'].index)
+# to_drop.extend(['games_next'])
+# X, y = skm.Xy_split('y_act', to_drop = to_drop)
+
+# pipe = skm.model_pipe([skm.piece('random_sample'),
+#                         skm.piece('std_scale'), 
+#                         skm.piece('select_perc'),
+#                         # skm.feature_union([
+#                         #                skm.piece('agglomeration'), 
+#                         #                 skm.piece('k_best'),
+#                         #                 skm.piece('pca')
+#                         #                 ]),
+#                         skm.piece('k_best'),
+#                         skm.piece('cb')
+#                     ])
+
+# params = skm.default_params(pipe, 'optuna')
+
+# #%%
+
+# def rename_existing(study_db, study_name):
+#     import datetime as dt
+#     new_study_name = study_name + '_' + dt.datetime.now().strftime('%Y%m%d%H%M%S')
+#     optuna.copy_study(from_study_name=study_name, from_storage=study_db, to_storage=study_db, to_study_name=new_study_name)
+#     optuna.delete_study(study_name=study_name, storage=study_db)
+
+
+# def get_new_study(db, old_name, new_name, num_trials):
     
-
-#     X = pd.DataFrame(X); 
-#     X.columns = [str(c) for c in X.columns]
-#     y = pd.Series(y, name='y')
-
-#     if weighting:
-#         X['wt_col'] = np.random.uniform(0,1,len(X))
-
-#     if model_obj=='class': stratify=y
-#     else: stratify=None
-#     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=rs, shuffle=True, stratify=stratify)
-
-#     skm = SciKitModel(pd.concat([X_train, y_train], axis=1), model_obj=model_obj, r2_wt=r2_wt, sera_wt=sera_wt, matt_wt=matt_wt, brier_wt=brier_wt)
-
-#     return skm, X_train, X_test, y_train, y_test
-
-
-# def get_models(model, skm, X, y, use_rs):
-
-#     if skm.model_obj=='reg': kb = 'k_best'
-#     elif skm.model_obj=='class': kb = 'k_best_c'
-#     if use_rs:
-#         pipe = skm.model_pipe([
-#                                     skm.piece('random_sample'),
-#                                     skm.piece('std_scale'), 
-#                                     skm.piece(kb),
-#                                     skm.piece(model)
-#                             ])
-#     else:
-#         pipe = skm.model_pipe([
-#                                     skm.piece('std_scale'), 
-#                                     skm.piece(kb),
-#                                     skm.piece(model)
-#                             ])
-
-#     params = skm.default_params(pipe, bayes_rand='bayes')
-#     # if use_rs:
-#     #     params['random_sample__frac'] = np.arange(0.3, 1, 0.05)
+#     if old_name is not None:
+#         old_study = optuna.create_study(
+#             study_name=old_name,
+#             storage=db,
+#             load_if_exists=True
+#         )
     
-#     # params[f'{kb}__k'] = range(1, 60)
+#     try:
+#         next_study = optuna.create_study(
+#             study_name=new_name, 
+#             storage=db, 
+#             load_if_exists=False
+#         )
 
-#     return pipe, params
-
-# def show_calibration_curve(y_true, y_pred, n_bins=10, strategy='uniform'):
-
-#     from sklearn.calibration import calibration_curve
+#     except:
+#         rename_existing(db, new_name)
+#         next_study = optuna.create_study(
+#             study_name=new_name, 
+#             storage=db, 
+#             load_if_exists=False
+#         )
     
-#     x, y = calibration_curve(y_true, y_pred, n_bins=n_bins, strategy=strategy)
+#     if old_name is not None:
+#         print(f"Loaded {new_name} study with {old_name} {len(old_study.trials)} trials")
+#         next_study.add_trials(old_study.trials[-num_trials:])
 
-#     # Plot perfectly calibrated
-#     plt.plot([0, 1], [0, 1], linestyle = '--', label = 'Ideally Calibrated')
-    
-#     # Plot model's calibration curve
-#     plt.plot(y, x, marker = '.', label = 'Model')
-    
-#     leg = plt.legend(loc = 'upper left')
-#     plt.xlabel('Average Predicted Probability in each bin')
-#     plt.ylabel('Ratio of positives')
-#     plt.show()
-
-# def show_results(skm, best_model, X_train, y_train, X_test, y_test, wts=None):
-#     best_model.fit(X_train, y_train)
-
-#     if model_obj=='reg': 
-#         y_test_pred = best_model.predict(X_test)
-#         _ = skm.test_scores(y_test, y_test_pred, sample_weight=wts)
-#         plt.scatter(y_test_pred, y_test)
-#     else: 
-#         y_test_pred = best_model.predict_proba(X_test)[:,1]
-#         _ = skm.test_scores(y_test, y_test_pred, sample_weight=wts)
-#         show_calibration_curve(y_test, y_test_pred, n_bins=8)
+#     return next_study
         
 
-# i = 1
 
-# rs = 12901235
-# num_k_folds = 1
-# use_random_sample = True
-# model = 'lr_c'
-# model_obj = 'class'
-# calibrate = False
+# study_db = "sqlite:///optuna/reuse_test.sqlite3"
+# old_name = 'v16'
+# new_name = 'v17'
+# num_trials = 25
+# next_study = get_new_study(study_db, old_name, new_name, num_trials)
+# next_study.trials_dataframe(attrs=("number", "value", "params", "state"))
+                            
+# #%%
+# # pipe.steps[-1][-1].set_params(**{'loss_function': f'Quantile:alpha={alpha}'})
+# best_models, oof_data, param_scores, trials = skm.time_series_cv(pipe, X, y, params, n_iter=5,
+#                                                                 col_split='year',n_splits=5,
+#                                                                 time_split=2016, alpha=alpha,
+#                                                                 bayes_rand='optuna', proba=proba,
+#                                                                 sample_weight=False, trials=next_study,
+#                                                                 random_seed=12345, optuna_timeout=10)
+# # %%
 
-# r2_wt=0; sera_wt=1
-# matt_wt=1; brier_wt=5
+# trials.trials_dataframe().duration.mean().seconds
 
-# skm, X_train, X_test, y_train, y_test = get_dataset(model_obj, rs=rs, weighting=True)
-# X_train = X_train.reset_index(drop=True)
-# y_train = y_train.reset_index(drop=True)
-# X_test = X_test.reset_index(drop=True)
-# y_test = y_test.reset_index(drop=True)
-
-# pipe, params = get_models(model, skm, X_train, y_train, use_random_sample)
-
-
-
-# if model_obj=='class': proba=True 
-# else: proba=False
-# best_model, stack_scores, stack_pred = skm.best_stack(pipe, params,
-#                                                       X_train, y_train, n_iter=25, 
-#                                                       run_adp=False, print_coef=False,
-#                                                     proba=proba,
-#                                                       random_state=(i*12)+(i*17), num_k_folds=num_k_folds, 
-#                                                       calibrate=calibrate,
-#                                                       wt_col='wt_col')
-
-
-# print(best_model)
-# if model_obj=='reg': print('Sera Wt', skm.sera_wt, 'R2 Wt', skm.r2_wt)
-# if model_obj=='class': print('Matt Wt', skm.matt_wt, 'Brier Wt', skm.brier_wt)
-# print('Num K Folds:', skm.num_k_folds)
-# print('Calibrate:', calibrate)
-# print('Use Random Sample:', use_random_sample)
-# print('\nOut of Sample Results\n--------------')
-
-# # show_calibration_curve(stack_pred['y'], stack_pred['stack_pred'], n_bins=8, strategy='quantile')
-# show_results(skm, best_model, X_train, y_train, X_test, y_test, wts=X_test['wt_col'])
-# if model_obj=='class': show_calibration_curve(stack_pred['y'], stack_pred['stack_pred'], n_bins=8)
-#%%
+# # %%
+# best_models
+# # %%
