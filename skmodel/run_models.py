@@ -210,15 +210,15 @@ class SciKitModel(PipeSetup):
 
             # model params
             'ridge': {
-                        'alpha': self.param_range('log', -2, 8, 0.1, br, 'alpha')
+                        'alpha': self.param_range('log', -2, 10, 0.1, br, 'alpha')
                      },
 
             'lasso': {
-                        'alpha': self.param_range('log', -5, 4, 0.05, br, 'alpha')
+                        'alpha': self.param_range('log', -6, 4, 0.05, br, 'alpha')
                     },
 
             'enet': {
-                    'alpha': self.param_range('log', -5, 4, 0.1, br, 'alpha'),
+                    'alpha': self.param_range('log', -6, 4, 0.1, br, 'alpha'),
                     'l1_ratio': self.param_range('real', 0.1, 0.9, 0.03, br, 'l1_ratio')
                     },
 
@@ -614,7 +614,6 @@ class SciKitModel(PipeSetup):
 
     def rand_objective(self, model, params):
 
-        print(params)
         self.cur_model = copy.deepcopy(model)
         self.cur_model.set_params(**params) 
 
