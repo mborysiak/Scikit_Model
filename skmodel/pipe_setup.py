@@ -206,16 +206,16 @@ class SelectAtMostKBest(SelectKBest):
 #             self.k = "all"
 
 
-class PCAAtMost(PCA):
+# class PCAAtMost(PCA):
 
-    def _check_params(self, X, y):
-        if not (0 <= self.n_components <= X.shape[1]):
-            # set k to "all" (skip feature selection), if less than k features are available
-            self.n_components = X.shape[1] - 5
+#     def _check_params(self, X, y):
+#         if not (0 <= self.n_components <= X.shape[1]):
+#             # set k to "all" (skip feature selection), if less than k features are available
+#             self.n_components = X.shape[1] - 5
 
-        if not (0 <= self.n_components <= X.shape[0]):
-            # set k to "all" (skip feature selection), if less than k features are available
-            self.n_components = np.min([X.shape[0],X.shape[1]]) - 5
+#         if not (0 <= self.n_components <= X.shape[0]):
+#             # set k to "all" (skip feature selection), if less than k features are available
+#             self.n_components = np.min([X.shape[0],X.shape[1]]) - 5
 
 # class AgglomerationAtMost(FeatureAgglomeration):
 
@@ -227,6 +227,21 @@ class PCAAtMost(PCA):
 #         if not (0 <= self.n_clusters <= X.shape[0]):
 #             # set k to "all" (skip feature selection), if less than k features are available
 #             self.n_clusters = np.min([X.shape[0],X.shape[1]]) - 5
+
+
+
+class PCAAtMost(PCA):
+    def __init__(self, n_components=2, **kwargs):
+        super().__init__(n_components=n_components, **kwargs)
+
+    def _fit(self, X):
+        # Get the minimum of number of samples and number of features
+        min_samples_features = min(X.shape[0], X.shape[1])
+        
+        if min_samples_features < self.n_components:
+            self.n_components = min_samples_features
+            
+        return super()._fit(X)
 
 
 class AgglomerationAtMost(FeatureAgglomeration):
@@ -388,7 +403,7 @@ class PipeSetup(DataSetup):
                 'gbmh_q': HistGradientBoostingRegressor(loss='quantile'),
                 'gbm_q': GradientBoostingRegressor(loss='quantile'),
                 'lgbm_q': LGBMRegressor(objective='quantile', verbose=-1, n_jobs=1),
-                'qr_q': QuantileRegressor(),
+                'qr_q': QuantileRegressor(solver='highs'),
                 'rf_q': SampleRandomForestQuantileRegressor(n_jobs=1),
                 'knn_q': KNeighborsQuantileRegressor(),
                 'cb_q': CatBoostRegressor(verbose=0),

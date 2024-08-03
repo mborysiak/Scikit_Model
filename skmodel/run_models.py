@@ -132,20 +132,26 @@ class SciKitModel(PipeSetup):
                               },
 
             'agglomeration': {
-                              'n_clusters': self.param_range('int', 2, 25, 2, br, 'n_clusters')
+                            #   'n_clusters': self.param_range('int', 2, 25, 2, br, 'n_clusters'),
+                              'n_clusters': self.param_range('int', 2, 40, 2, br, 'n_clusters')
                               },
 
             'pca': {
-                'n_components': self.param_range('int', 2, 20, 2, br, 'n_components')
+                # 'n_components': self.param_range('int', 2, 20, 2, br, 'n_components'),
+                'n_components': self.param_range('int', 2, 40, 2, br, 'n_components')
                 },
 
             'k_best': {
-                'k': self.param_range('int', 20, 125, 5, br, 'k'),
+                # 'k': self.param_range('int', 20, 125, 5, br, 'k'),
+                'k': self.param_range('int', 20, 200, 5, br, 'k'),
             #    'score_func': self.param_range('cat', [f_regression, r_regression], None, None, br, 'kb_score_func')
                 },
 
+            
+
             'k_best_fu': {
-                'k': self.param_range('int', 20, 125, 5, br, 'k_fu'),
+                # 'k': self.param_range('int', 20, 125, 5, br, 'k_fu'),
+                'k': self.param_range('int', 20, 200, 5, br, 'k_fu'),
                 # 'score_func': self.param_range('cat', [f_regression, r_regression], None, None, br, 'kb_score_func_fu')
                 },
 
@@ -155,12 +161,14 @@ class SciKitModel(PipeSetup):
                 },
 
             'k_best_c': {
-                'k': self.param_range('int', 20, 125, 5, br, 'k_best_c'),
+                # 'k': self.param_range('int', 20, 125, 5, br, 'k_best_c'),
+                'k': self.param_range('int', 20, 200, 5, br, 'k_best_c'),
                 # 'score_func': self.param_range('cat', [f_classif], None, None, br, 'kb_score_func')
                 },
 
             'k_best_c_fu': {
-                'k': self.param_range('int', 20, 125, 5, br, 'k_best_c_fu'),
+                # 'k': self.param_range('int', 20, 125, 5, br, 'k_best_c_fu'),
+                'k': self.param_range('int', 20, 200, 5, br, 'k_best_c_fu'),
                 # 'score_func': self.param_range('cat', [f_classif], None, None, br, 'kb_score_func')
                 },
 
@@ -202,15 +210,15 @@ class SciKitModel(PipeSetup):
 
             # model params
             'ridge': {
-                        'alpha': self.param_range('log', -2, 6, 0.1, br, 'alpha')
+                        'alpha': self.param_range('log', -2, 8, 0.1, br, 'alpha')
                      },
 
             'lasso': {
-                        'alpha': self.param_range('log', -4, 4, 0.05, br, 'alpha')
+                        'alpha': self.param_range('log', -5, 4, 0.05, br, 'alpha')
                     },
 
             'enet': {
-                    'alpha': self.param_range('log', -4, 4, 0.1, br, 'alpha'),
+                    'alpha': self.param_range('log', -5, 4, 0.1, br, 'alpha'),
                     'l1_ratio': self.param_range('real', 0.1, 0.9, 0.03, br, 'l1_ratio')
                     },
 
@@ -221,7 +229,7 @@ class SciKitModel(PipeSetup):
                     },
 
             'lr_c': {
-                    'C': self.param_range('log', -4, 4, 0.1, br, 'C'),
+                    'C': self.param_range('log', -8, 4, 0.1, br, 'C'),
                   #  'class_weight': [{0: i, 1: 1} for i in np.arange(0.2, 1, 0.1)]
                     },
             
@@ -233,14 +241,14 @@ class SciKitModel(PipeSetup):
             'rf': {
                     'n_estimators': self.param_range('int', 50, 250, 10, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 30, 2, br, 'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 1, 10, 1, br, 'min_samples_leaf'),
+                    'min_samples_leaf': self.param_range('int', 1, 30, 1, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features')
                     },
 
             'rf_c': {
                     'n_estimators': self.param_range('int', 50, 250, 20, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 1, 20, 2, br, 'min_samples_leaf'),
+                    'min_samples_leaf': self.param_range('int', 1, 30, 2, br, 'min_samples_leaf'),
                     'max_features': self.param_range('real', 0.1, 1, 0.2, br, 'max_features'),
                     # 'class_weight': [{0: i, 1: 1} for i in np.arange(0.01, 0.8, 0.05)],
                     # 'criterion': self.param_range('cat', ['gini', 'log_loss'], None, None, br, 'criterion'),
@@ -255,21 +263,22 @@ class SciKitModel(PipeSetup):
 
             'lgbm': {
                         'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
-                        'num_leaves': self.param_range('int', 20, 100, 5, br, 'num_leaves'),
-                        'learning_rate': self.param_range('log', -4, 0, 0.1, br,  'learning_rate'),
+                        'num_leaves': self.param_range('int', 20, 150, 5, br, 'num_leaves'),
+                        'learning_rate': self.param_range('log', -5, 0, 0.1, br,  'learning_rate'),
                         'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
                         'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
-                        'min_child_samples': self.param_range('int', 1, 50, 2, br, 'min_child_samples')
-                        
+                        'min_child_samples': self.param_range('int', 1, 100, 2, br, 'min_child_samples'),
+                        'reg_alpha': self.param_range('real', 0, 10, 5, br, 'reg_alpha'),
                     },
 
             'lgbm_c': {
                       'max_depth': self.param_range('int', 2, 15, 2, br, 'max_depth'),
-                      'num_leaves': self.param_range('int', 20, 100, 5, br, 'num_leaves'),
-                      'learning_rate': self.param_range('log', -4, 0, 0.1, br,  'learning_rate'),
-                      'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
+                      'num_leaves': self.param_range('int', 20, 150, 5, br, 'num_leaves'),
+                      'learning_rate': self.param_range('log', -5, 0, 0.1, br,  'learning_rate'),
+                      'colsample_bytree': self.param_range('real', 0.1, 1, 0.05, br, 'colsample_bytree'),
                       'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
-                      'min_child_samples': self.param_range('int', 1, 50, 2, br, 'min_child_samples')
+                      'min_child_samples': self.param_range('int', 1, 100, 2, br, 'min_child_samples'),
+                      'reg_alpha': self.param_range('real', 0, 10, 5, br, 'reg_alpha'),
                      },
 
             'lgbm_q': {
@@ -278,101 +287,105 @@ class SciKitModel(PipeSetup):
                         'learning_rate': self.param_range('log', -4, 0, 0.1, br,  'learning_rate'),
                         'colsample_bytree': self.param_range('real', 0.2, 1, 0.05, br, 'colsample_bytree'),
                         'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
-                        'min_child_samples': self.param_range('int', 1, 50, 2, br, 'min_child_samples')
+                        'min_child_samples': self.param_range('int', 1, 50, 2, br, 'min_child_samples'),
+                        'reg_alpha': self.param_range('real', 0, 10, 5, br, 'reg_alpha'),
                     },
 
             'xgb': {
                     'n_estimators': self.param_range('int', 30, 250, 20, br, 'n_estimators'),
                      'max_depth': self.param_range('int', 2, 20, 2, br, 'max_depth'),
-                     'colsample_bytree': self.param_range('real', 0.2, 0.9, 0.1, br,  'colsample_bytree'),
-                     'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
+                     'colsample_bytree': self.param_range('real', 0.1, 0.9, 0.1, br,  'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.1, br, 'subsample'),
                      'reg_lambda': self.param_range('log', 0, 2, 0.1, br,  'reg_lambda'),
                      'reg_alpha': self.param_range('int', 0, 50, 5, br,  'reg_alpha'),
-                     'learning_rate': self.param_range('log', -4, -0.5, 0.1, br, 'learning_rate'),
+                     'learning_rate': self.param_range('log', -5, -0.5, 0.1, br, 'learning_rate'),
                      },
 
             'xgb_c': {
                      'n_estimators': self.param_range('int', 30, 170, 10, br, 'n_estimators'),
                      'max_depth': self.param_range('int', 2, 20, 3, br, 'max_depth'),
-                     'colsample_bytree': self.param_range('real', 0.2, 1, 0.25, br, 'colsample_bytree'),
-                     'subsample':  self.param_range('real', 0.4, 1, 0.1, br, 'subsample'),
-                     'reg_lambda': self.param_range('log', 0, 3, 0.1, br, 'reg_lambda'),
-                     'learning_rate': self.param_range('log', -4, -0.5, 0.1, br, 'learning_rate'),
+                     'colsample_bytree': self.param_range('real', 0.1, 1, 0.25, br, 'colsample_bytree'),
+                     'subsample':  self.param_range('real', 0.2, 1, 0.1, br, 'subsample'),
+                     'reg_lambda': self.param_range('log', 0, 4, 0.1, br, 'reg_lambda'),
+                     'learning_rate': self.param_range('log', -5, -0.5, 0.1, br, 'learning_rate'),
                     #  'scale_pos_weight': self.param_range('real', 1, 20, 1, br, 'scale_pos_weight')
                      },
 
             'gbm': {
                     'n_estimators': self.param_range('int', 20, 90, 3, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 18, 2, br,'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 5, 20, 2, br, 'min_samples_leaf'),
-                    'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
-                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample'),
-                    'learning_rate': self.param_range('log', -4, -0.5, 0.1, br, 'learning_rate'),
+                    'min_samples_leaf': self.param_range('int', 5, 30, 2, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.22, 1, 0.1, br, 'max_features'),
+                    'subsample': self.param_range('real', 0.2, 1, 0.1, br, 'subsample'),
+                    'learning_rate': self.param_range('log', -5, -0.5, 0.1, br, 'learning_rate'),
                     },
 
             'gbm_c': {
                     'n_estimators': self.param_range('int', 10, 80, 10, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 18, 2, br, 'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 5, 15, 1, br, 'min_samples_leaf'),
-                    'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
-                    'learning_rate': self.param_range('log', -4, -0.5, 0.1, br, 'learning_rate'),
-                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample')
+                    'min_samples_leaf': self.param_range('int', 5, 30, 1, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.2, 1, 0.1, br, 'max_features'),
+                    'learning_rate': self.param_range('log', -5, -0.5, 0.1, br, 'learning_rate'),
+                    'subsample': self.param_range('real', 0.2, 1, 0.1, br, 'subsample')
                     },
 
             'gbm_q': {
                     'n_estimators': self.param_range('int', 10, 60, 5, br, 'n_estimators'),
                     'max_depth': self.param_range('int', 2, 18, 2, br,'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 4, 25, 3, br, 'min_samples_leaf'),
-                    'max_features': self.param_range('real', 0.7, 1, 0.1, br, 'max_features'),
-                    'subsample': self.param_range('real', 0.5, 1, 0.1, br, 'subsample'),
-                    'learning_rate': self.param_range('log', -4, -0.5, 0.1, br, 'learning_rate'),
+                    'min_samples_leaf': self.param_range('int', 4, 30, 3, br, 'min_samples_leaf'),
+                    'max_features': self.param_range('real', 0.2, 1, 0.1, br, 'max_features'),
+                    'subsample': self.param_range('real', 0.2, 1, 0.1, br, 'subsample'),
+                    'learning_rate': self.param_range('log', -5, -0.5, 0.1, br, 'learning_rate'),
                     },
 
             'gbmh': {
                     'max_iter': self.param_range('int', 30, 100, 10, br, 'max_iter'),
                     'max_depth': self.param_range('int', 4, 12, 1, br,'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 5, 25, 2, br, 'min_samples_leaf'),
-                    'max_leaf_nodes': self.param_range('int', 20, 50, 3, br, 'max_leaf_nodes'),
-                    'l2_regularization': self.param_range('real', 0, 10, 1, br, 'l2_regularization'),
-                    'learning_rate': self.param_range('log', -4, -0.5, 0.1, br, 'learning_rate')
+                    'min_samples_leaf': self.param_range('int', 5, 35, 2, br, 'min_samples_leaf'),
+                    'max_leaf_nodes': self.param_range('int', 10, 75, 3, br, 'max_leaf_nodes'),
+                    'l2_regularization': self.param_range('real', 0, 25, 1, br, 'l2_regularization'),
+                    'learning_rate': self.param_range('log', -5, -0.5, 0.1, br, 'learning_rate')
                     },
 
             'gbmh_c': {
                     'max_iter': self.param_range('int', 30, 100, 10, br, 'max_iter'),
                     'max_depth': self.param_range('int', 3, 12, 2, br,'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 5, 25, 2, br, 'min_samples_leaf'),
-                    'max_leaf_nodes': self.param_range('int', 15, 50, 5, br, 'max_leaf_nodes'),
-                    'l2_regularization': self.param_range('real', 0, 10, 1, br, 'l2_regularization'),
-                    'learning_rate': self.param_range('log', -4, -0.5, 0.1, br, 'learning_rate')
+                    'min_samples_leaf': self.param_range('int', 5, 35, 2, br, 'min_samples_leaf'),
+                    'max_leaf_nodes': self.param_range('int', 10, 75, 5, br, 'max_leaf_nodes'),
+                    'l2_regularization': self.param_range('real', 0, 25, 1, br, 'l2_regularization'),
+                    'learning_rate': self.param_range('log', -5, -0.5, 0.1, br, 'learning_rate')
                     },
 
             'gbmh_q': {
                     'max_iter': self.param_range('int', 30, 100, 10, br, 'max_iter'),
                     'max_depth': self.param_range('int', 3, 12, 2, br,'max_depth'),
-                    'min_samples_leaf': self.param_range('int', 5, 25, 2, br, 'min_samples_leaf'),
-                    'max_leaf_nodes': self.param_range('int', 15, 50, 5, br, 'max_leaf_nodes'),
-                    'l2_regularization': self.param_range('real', 0, 10, 1, br, 'l2_regularization'),
-                    'learning_rate': self.param_range('log', -4, -0.5, 0.1, br, 'learning_rate')
+                    'min_samples_leaf': self.param_range('int', 5, 35, 2, br, 'min_samples_leaf'),
+                    'max_leaf_nodes': self.param_range('int', 10, 75, 5, br, 'max_leaf_nodes'),
+                    'l2_regularization': self.param_range('real', 0, 25, 1, br, 'l2_regularization'),
+                    'learning_rate': self.param_range('log', -5, -0.5, 0.1, br, 'learning_rate')
                     },
             
             'cb': {
-                    'iterations': self.param_range('int', 50, 175, 10, br, 'iterations'),
+                    'iterations': self.param_range('int', 25, 175, 10, br, 'iterations'),
                     'depth': self.param_range('int', 1, 8, 1, br, 'depth'),
                     'learning_rate': self.param_range('log', -5, 0, 0.1, br, 'learning_rate'),
-                    'l2_leaf_reg': self.param_range('real', 0, 20, 1, br, 'l2_leaf_reg'),
-                    'random_strength': self.param_range('real', 0, 20, 1, br, 'random_strength')
+                    'l2_leaf_reg': self.param_range('real', 0, 100, 1, br, 'l2_leaf_reg'),
+                    'random_strength': self.param_range('real', 0, 20, 1, br, 'random_strength'),
+                    # 'colsample_bylevel': self.param_range('real', 0.1, 0.8, 0.1, br, 'colsample_bylevel'),
+                    # 'subsample': self.param_range('real', 0.1, 0.5, 0.1, br, 'subsample')
                     },
 
             'cb_c': {
-                    'iterations': self.param_range('int', 50, 175, 10, br, 'iterations'),
+                    'iterations': self.param_range('int', 25, 175, 10, br, 'iterations'),
                     'depth': self.param_range('int', 1, 8, 1, br, 'depth'),
                     'learning_rate': self.param_range('log', -5, 0, 0.1, br, 'learning_rate'),
-                    'l2_leaf_reg': self.param_range('real', 0, 20, 1, br, 'l2_leaf_reg'),
-                    'random_strength': self.param_range('real', 0, 20, 1, br, 'random_strength')
+                    'l2_leaf_reg': self.param_range('real', 0, 100, 1, br, 'l2_leaf_reg'),
+                    'random_strength': self.param_range('real', 0, 20, 1, br, 'random_strength'),
+
                     },
 
             'cb_q': {
-                    'iterations': self.param_range('int', 50, 175, 10, br, 'iterations'),
+                    'iterations': self.param_range('int', 25, 175, 10, br, 'iterations'),
                     'depth': self.param_range('int', 1, 8, 1, br, 'depth'),
                     'learning_rate': self.param_range('log', -5, 0, 0.1, br, 'learning_rate'),
                     'l2_leaf_reg': self.param_range('real', 0, 20, 1, br, 'l2_leaf_reg'),
@@ -710,6 +723,12 @@ class SciKitModel(PipeSetup):
     
     def get_optuna_params(self, num_past_runs):
         min_val = 10000000
+        
+        # if no new trials were added, use best historical trial
+        if len(self.trials.get_trials())==num_past_runs: 
+            num_past_runs = 0
+
+        # find the best score from the most recent trials
         for t in self.trials.get_trials()[num_past_runs:]:
             if t.values[0] < min_val:
                 min_val = t.values[0]
@@ -1090,7 +1109,8 @@ class SciKitModel(PipeSetup):
         
     def best_stack(self, model, stack_params, X_stack, y_stack, n_iter=500, 
                    print_coef=True, run_adp=False, random_state=1234, bayes_rand='rand',
-                   alpha=0.5, proba=False, num_k_folds=1,  grp=None, wt_col=None, trials=None):
+                   alpha=0.5, proba=False, num_k_folds=1,  grp=None, wt_col=None, trials=None,
+                   optuna_timeout=60*10):
 
         self.X = X_stack
         self.y = y_stack
@@ -1102,12 +1122,16 @@ class SciKitModel(PipeSetup):
         self.grp = grp
         self.wt_col = wt_col
         self.trials = trials
+        self.optuna_timeout = optuna_timeout
 
         if bayes_rand == 'bayes':
             best_model, _ = self.custom_bayes_search(model, stack_params, n_iter)
 
         elif bayes_rand == 'rand':
             best_model, _ = self.custom_rand_search(model, stack_params, n_iters=n_iter)
+
+        elif bayes_rand == 'optuna':
+            best_model, _ = self.custom_optuna_search(model, stack_params, n_iters=n_iter)
 
         if run_adp:
             # print the OOS scores for ADP and model stack
